@@ -38,3 +38,15 @@ test('优先级4：glob 命中取最新 mtime', () => {
 test('全部未命中抛带指引的错误', () => {
   assert.throws(() => resolveCliPath({ command: ['nonexistent-cli-xyz'] }), /未找到/);
 });
+
+test('win32 下 PATH 查找跳过无扩展名裸文件、命中 .cmd', { skip: process.platform !== 'win32' }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'rt-path-'));
+  writeFileSync(path.join(dir, 'mytool'), '#!/bin/sh\necho posix-shim');   // 裸 POSIX shim
+  writeFileSync(path.join(dir, 'mytool.cmd'), '@echo off\r\n');
+  const oldPath = process.env.PATH;
+  process.env.PATH = dir + path.delimiter + oldPath;
+  try {
+    const p = resolveCliPath({ command: ['mytool'] });
+    assert.match(p, /mytool\.cmd$/i);
+  } finally { process.env.PATH = oldPath; }
+});

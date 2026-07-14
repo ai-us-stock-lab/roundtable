@@ -61,7 +61,14 @@ export async function runAgent(cfg, prompt, opts = {}) {
     };
     let child;
     try {
-      child = spawn(argv[0], argv.slice(1), {
+      // win32 下 .cmd/.bat 不能被 CreateProcess 直接执行（不是真正的 PE），
+      // 需要在 spawn 时刻动态包一层 cmd /c；argv 仍是数组、shell 仍为 false，
+      // prompt 仍走 stdin——不引入 shell 注入面。
+      const isWinShimScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(argv[0] ?? '');
+      const [file, args] = isWinShimScript
+        ? [process.env.COMSPEC ?? 'cmd.exe', ['/c', ...argv]]
+        : [argv[0], argv.slice(1)];
+      child = spawn(file, args, {
         env: buildEnv(cfg.envWhitelist),
         cwd: cfg.cwd,
         shell: false,

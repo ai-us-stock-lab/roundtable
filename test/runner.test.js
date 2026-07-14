@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { buildEnv, runAgent } from '../src/runner.js';
 
 const MOCK = (over = {}) => ({
@@ -89,4 +92,14 @@ test('signal + spawn 失败组合仍返回 spawn 错误（不抛异常）', asyn
   const r = await runAgent(MOCK({ command: [undefined] }), 'hi', { signal: ac.signal });
   assert.equal(r.ok, false);
   assert.match(String(r.error), /^spawn:/);
+});
+
+test('win32 下 .cmd 命令自动经 cmd /c 包装执行', { skip: process.platform !== 'win32' }, async () => {
+  // 造一个真实 .cmd：回显固定文本
+  const dir = mkdtempSync(path.join(tmpdir(), 'rt-cmd-'));
+  const cmdFile = path.join(dir, 'hello.cmd');
+  writeFileSync(cmdFile, '@echo off\r\necho from-cmd-wrapper\r\n');
+  const r = await runAgent(MOCK({ command: [cmdFile], envWhitelist: ['PATH', 'SYSTEMROOT', 'COMSPEC'] }), '');
+  assert.equal(r.ok, true);
+  assert.match(r.text, /from-cmd-wrapper/);
 });

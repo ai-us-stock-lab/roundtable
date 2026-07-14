@@ -3,7 +3,7 @@
   "mockB": { "name": "MockB", "command": ["node", "test/mock-cli.cjs"], "input": "stdin", "output": "text", "timeoutMs": 5000, "envWhitelist": ["PATH", "SYSTEMROOT"], "cwd": ".", "roles": ["debater", "judge", "summarizer"] },
   "claude": {
     "name": "Claude",
-    "command": ["cmd", "/c", "claude", "-p", "--output-format", "stream-json", "--verbose", "--disallowedTools", "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Glob,Grep,Read,Task"],
+    "command": ["claude", "-p", "--output-format", "stream-json", "--verbose", "--disallowedTools", "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Glob,Grep,Read,Task"],
     "input": "stdin",
     "output": "stream-json",
     "timeoutMs": 300000,
