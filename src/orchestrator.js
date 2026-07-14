@@ -14,6 +14,7 @@ export class Committee {
     this.dir = null;
     this.abort = null;
     this.errors = [];
+    this.autoStopRequested = false;
   }
 
   setState(s) { this.state = s; this.emit({ type: 'state', data: s }); }
@@ -119,6 +120,53 @@ export class Committee {
     this.emit({ type: 'summary', round: this.round, data: entry.summary });
   }
 
+  async retrySide(agentId) {
+    const entry = this.history.at(-1);
+    if (!entry) throw new Error('尚无可重试的轮次');
+    this.abort = new AbortController();
+    const r = await this.call(agentId, `r${this.round}retry`, entry.briefs[agentId]);
+    entry.outputs[agentId] = r;
+    await this.summarizeRound();
+    await this.saveMeta(this.state);
+    return r;
+  }
+
+  async skipSide(agentId) {
+    const entry = this.history.at(-1);
+    if (!entry) throw new Error('尚无可跳过的轮次');
+    entry.outputs[agentId] = { ok: false, error: 'skipped', text: '' };
+    this.emit({ type: 'agent-status', agentId, data: 'skipped' });
+    await this.summarizeRound();
+  }
+
+  stopRound() {
+    this.autoStopRequested = true;
+    this.abort?.abort();
+    if (this.state === 'running') {
+      this.round -= 1; // 本轮作废
+      this.setState('paused');
+    }
+  }
+
+  async savePartial() {
+    await store.assembleSessionMd(this.dir);
+    await this.saveMeta('partial');
+    this.state = 'partial';
+  }
+
+  requestAutoStop() { this.autoStopRequested = true; }
+
+  async runAuto() {
+    this.autoStopRequested = false;
+    while (this.round < this.maxRounds && !this.autoStopRequested) {
+      const entry = await this.runNextRound();
+      if (!entry) return; // 被 stopRound 中止
+      const [s1, s2] = [this.history.at(-2)?.summary, this.history.at(-1)?.summary];
+      if (s1 && s2 && extractDisagreementBlock(s1) === extractDisagreementBlock(s2)) break; // 分歧收敛
+    }
+    if (!this.autoStopRequested) await this.runJudge();
+  }
+
   async runJudge() {
     this.setState('judging');
     const finalStatements = {};
@@ -141,4 +189,17 @@ export class Committee {
     await this.saveMeta(this.state);
     return r;
   }
+}
+
+// 从 summary 文本中截取「分歧分类表」段落（用于 runAuto 判断分歧是否已收敛）
+export function extractDisagreementBlock(summary) {
+  const lines = String(summary).split('\n');
+  const start = lines.findIndex(l => l.includes('分歧分类表'));
+  if (start === -1) return '';
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^- /.test(lines[i])) break; // 下一个顶层条目
+    out.push(lines[i]);
+  }
+  return out.join('\n').trim();
 }

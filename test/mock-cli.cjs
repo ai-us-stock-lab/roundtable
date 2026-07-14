@@ -1,6 +1,9 @@
 // 可控 mock CLI：按 prompt 首行指令行为，供全部测试复用
 const { readFileSync } = require('node:fs');
 
+// 测试可控延迟：存在 MOCK_DELAY_MS 时先睡再回显，默认 0 不影响其他测试
+const delay = Number(process.env.MOCK_DELAY_MS ?? 0);
+
 // 文件输入模式：node mock-cli.cjs --from-file <path>
 if (process.argv[2] === '--from-file') {
   process.stdout.write(readFileSync(process.argv[3], 'utf8'));
@@ -43,6 +46,8 @@ process.stdin.on('end', () => {
     process.exit(0);
   }
   if (first === '#echo') { process.stdout.write(rest); process.exit(0); }
-  process.stdout.write(input);
-  process.exit(0);
+  setTimeout(() => {
+    process.stdout.write(input);
+    process.exit(0);
+  }, delay);
 });

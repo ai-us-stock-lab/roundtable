@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Committee } from '../src/orchestrator.js';
+import { Committee, extractDisagreementBlock } from '../src/orchestrator.js';
 
 // mock-cli 默认回显输入 → 辩手输出 = 简报原文，正好用来断言简报内容
 const AGENT = name => ({
@@ -70,4 +70,66 @@ test('全过程落盘 prompts 与 raw', async () => {
     assert.ok(prompts.includes(f), 'prompts 缺 ' + f);
     assert.ok(raws.includes(f), 'raw 缺 ' + f);
   }
+});
+
+test('skipSide 后 summary 记录缺席', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  await c.skipSide('b');
+  assert.match(c.history[0].summary, /缺席/);
+});
+
+test('retrySide 用原简报重跑并刷新摘要', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  await c.skipSide('b');
+  await c.retrySide('b');
+  assert.equal(c.history[0].outputs.b.ok, true);
+  assert.doesNotMatch(c.history[0].summary, /缺席/);
+});
+
+test('stopRound 中止并回退轮次', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  // 用慢速 mock 制造可中断的一轮：MOCK_DELAY_MS 让子进程先睡再回显，确保 stopRound 能在其完成前触发 abort
+  c.agents.a.envWhitelist = ['PATH', 'SYSTEMROOT', 'MOCK_DELAY_MS'];
+  c.agents.b.envWhitelist = ['PATH', 'SYSTEMROOT', 'MOCK_DELAY_MS'];
+  process.env.MOCK_DELAY_MS = '3000';
+  try {
+    const p = c.runNextRound();
+    setTimeout(() => c.stopRound(), 50);
+    await p;
+  } finally {
+    delete process.env.MOCK_DELAY_MS;
+  }
+  assert.equal(c.round, 1);
+  assert.equal(c.state, 'paused');
+  assert.equal(c.history.length, 1);
+});
+
+test('savePartial 落盘半成品', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  await c.savePartial();
+  const meta = JSON.parse(readFileSync(path.join(c.dir, 'metadata.json'), 'utf8'));
+  assert.equal(meta.status, 'partial');
+  assert.ok(readdirSync(c.dir).includes('session.md'));
+});
+
+test('runAuto 达到 maxRounds 后自动裁决', async () => {
+  const { c } = makeCommittee({ maxRounds: 2, mode: 'auto' });
+  await c.init();
+  await c.runAuto();
+  assert.equal(c.round, 2);
+  assert.equal(c.state, 'done');
+});
+
+test('extractDisagreementBlock 截取分歧段', () => {
+  const s = '- 当前共识：x\n- 分歧分类表：\n  事实分歧 | A | B | 查证\n- 已证实事实：y';
+  assert.match(extractDisagreementBlock(s), /事实分歧 \| A \| B/);
+  assert.doesNotMatch(extractDisagreementBlock(s), /已证实事实/);
 });
