@@ -133,3 +133,34 @@ test('extractDisagreementBlock 截取分歧段', () => {
   assert.match(extractDisagreementBlock(s), /事实分歧 \| A \| B/);
   assert.doesNotMatch(extractDisagreementBlock(s), /已证实事实/);
 });
+
+test('stopRound 后 skipSide 的摘要调用仍可被再次 stopRound 中止', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  c.stopRound();                       // spend 掉当前 controller
+  const oldAbort = c.abort;
+  await c.skipSide('b');               // 应新建 controller
+  assert.notEqual(c.abort, oldAbort);
+});
+
+test('retrySide 成功后 session.md 展示重试后的内容（不再是失败时的旧内容）', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  // 让 b 在第 1 轮真实失败（非 aborted），使规范文件 raw/r1-b.md 落盘失败占位
+  const workingCmd = c.agents.b.command;
+  c.agents.b.command = [process.execPath, '-e', 'process.exit(1)'];
+  await c.runNextRound();
+  assert.equal(c.history[0].outputs.b.ok, false);
+  const rawBefore = readFileSync(path.join(c.dir, 'raw', 'r1-b.md'), 'utf8');
+  assert.match(rawBefore, /exit:1/);
+  // 恢复正常 mock，重试成功
+  c.agents.b.command = workingCmd;
+  await c.retrySide('b');
+  assert.equal(c.history[0].outputs.b.ok, true);
+  await c.savePartial();
+  const rawAfter = readFileSync(path.join(c.dir, 'raw', 'r1-b.md'), 'utf8');
+  assert.doesNotMatch(rawAfter, /exit:1/);
+  const md = readFileSync(path.join(c.dir, 'session.md'), 'utf8');
+  assert.doesNotMatch(md, /exit:1/);
+});

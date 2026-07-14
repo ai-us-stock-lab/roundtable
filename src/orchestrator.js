@@ -126,6 +126,7 @@ export class Committee {
     this.abort = new AbortController();
     const r = await this.call(agentId, `r${this.round}retry`, entry.briefs[agentId]);
     entry.outputs[agentId] = r;
+    if (r.ok) await store.saveRaw(this.dir, 'r' + this.round, agentId, r.text);
     await this.summarizeRound();
     await this.saveMeta(this.state);
     return r;
@@ -134,6 +135,7 @@ export class Committee {
   async skipSide(agentId) {
     const entry = this.history.at(-1);
     if (!entry) throw new Error('尚无可跳过的轮次');
+    this.abort = new AbortController();
     entry.outputs[agentId] = { ok: false, error: 'skipped', text: '' };
     this.emit({ type: 'agent-status', agentId, data: 'skipped' });
     await this.summarizeRound();
