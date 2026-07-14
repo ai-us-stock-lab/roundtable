@@ -23,3 +23,8 @@ test('普通文本不受影响', () => {
   const s = '南添认为规模效应是北极星，N1 阶段增速 >18%。';
   assert.equal(redact(s), s);
 });
+
+test('普通连字符词不被 sk- 模式误伤', () => {
+  const s = 'our risk-management-framework and task-management-system stay intact';
+  assert.equal(redact(s), s);
+});
