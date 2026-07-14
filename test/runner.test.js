@@ -4,7 +4,7 @@ import { buildEnv, runAgent } from '../src/runner.js';
 
 const MOCK = (over = {}) => ({
   name: 'mock',
-  command: [process.execPath, 'test/mock-cli.js'],
+  command: [process.execPath, 'test/mock-cli.cjs'],
   input: 'stdin',
   output: 'text',
   timeoutMs: 5000,
@@ -49,4 +49,37 @@ test('spawn 失败（同步抛错）返回 spawn 错误而非异常', async () =
   const r = await runAgent(MOCK({ command: [undefined] }), 'hi');
   assert.equal(r.ok, false);
   assert.match(String(r.error), /^spawn:/);
+});
+
+test('file 输入：{PROMPT_FILE} 占位符被替换', async () => {
+  const r = await runAgent(MOCK({
+    command: [process.execPath, 'test/mock-cli.cjs', '--from-file', '{PROMPT_FILE}'],
+    input: 'file',
+  }), 'file content here');
+  assert.equal(r.ok, true);
+  assert.equal(r.text, 'file content here');
+});
+
+test('json 输出：取 result 字段', async () => {
+  const r = await runAgent(MOCK({ output: 'json' }), '#json\nparsed answer');
+  assert.equal(r.text, 'parsed answer');
+});
+
+test('stream-json 输出：取 result 事件', async () => {
+  const r = await runAgent(MOCK({ output: 'stream-json' }), '#stream\nstreamed answer');
+  assert.equal(r.text, 'streamed answer');
+});
+
+test('登录失效识别为 auth 错误', async () => {
+  const r = await runAgent(MOCK(), '#auth');
+  assert.equal(r.error, 'auth');
+});
+
+test('abort signal 终止子进程', async () => {
+  const ac = new AbortController();
+  const p = runAgent(MOCK(), '#sleep 5000\nx', { signal: ac.signal });
+  setTimeout(() => ac.abort(), 100);
+  const r = await p;
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'aborted');
 });
