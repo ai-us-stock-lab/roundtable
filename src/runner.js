@@ -49,12 +49,13 @@ export async function runAgent(cfg, prompt, opts = {}) {
   return await new Promise(resolve => {
     let out = '', err = '', settled = false;
     let timer;
+    let onAbort;
     const cleanup = () => { if (tmpDir) try { rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
     const finish = r => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
+      if (onAbort) opts.signal?.removeEventListener('abort', onAbort);
       cleanup();
       resolve({ raw: out, stderr: err, durationMs: Date.now() - started, ...r });
     };
@@ -73,7 +74,7 @@ export async function runAgent(cfg, prompt, opts = {}) {
       child.kill('SIGKILL');
       finish({ ok: false, error: 'timeout', text: out, exitCode: null });
     }, cfg.timeoutMs);
-    const onAbort = () => {
+    onAbort = () => {
       child.kill('SIGKILL');
       finish({ ok: false, error: 'aborted', text: out, exitCode: null });
     };

@@ -83,3 +83,10 @@ test('abort signal 终止子进程', async () => {
   assert.equal(r.ok, false);
   assert.equal(r.error, 'aborted');
 });
+
+test('signal + spawn 失败组合仍返回 spawn 错误（不抛异常）', async () => {
+  const ac = new AbortController();
+  const r = await runAgent(MOCK({ command: [undefined] }), 'hi', { signal: ac.signal });
+  assert.equal(r.ok, false);
+  assert.match(String(r.error), /^spawn:/);
+});
