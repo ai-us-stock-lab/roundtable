@@ -28,9 +28,14 @@ function parseOutput(mode, raw) {
   if (mode === 'json') {
     try {
       const j = JSON.parse(raw);
-      // 依次尝试各家 CLI 的 JSON 答案字段：通用 result/text → openclaw 的 payloads[].text
-      const payloads = Array.isArray(j.payloads) ? j.payloads.map(p => p?.text).filter(Boolean).join('\n') : '';
-      return String(j.result ?? j.text ?? (payloads || raw)).trim();
+      // 依次尝试各家 CLI 的 JSON 答案位置：
+      // 字符串 result/text（通用）→ payloads[].text（openclaw 嵌入路径）→ result.payloads[].text（openclaw gateway 路径）
+      const fromPayloads = o => (o && Array.isArray(o.payloads)) ? o.payloads.map(p => p?.text).filter(Boolean).join('\n') : '';
+      const text = (typeof j.result === 'string' && j.result)
+        || (typeof j.text === 'string' && j.text)
+        || fromPayloads(j)
+        || fromPayloads(j.result);
+      return String(text || raw).trim();
     } catch { return raw.trim(); }
   }
   if (mode === 'stream-json') return extractStreamText(raw);

@@ -161,3 +161,8 @@ test('json 输出：支持 openclaw 的 payloads[].text 结构', async () => {
   const r = await runAgent(MOCK({ output: 'json' }), '#echo\n{"payloads":[{"text":"来自payloads的回答","mediaUrl":null}],"meta":{"transport":"embedded"}}');
   assert.equal(r.text, '来自payloads的回答');
 });
+
+test('json 输出：支持 gateway 路径的嵌套 result.payloads 结构', async () => {
+  const r = await runAgent(MOCK({ output: 'json' }), '#echo\n{"runId":"x","status":"ok","result":{"payloads":[{"text":"网关路径回答"}],"meta":{}}}');
+  assert.equal(r.text, '网关路径回答');
+});
