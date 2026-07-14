@@ -20,6 +20,17 @@ export class Committee {
     this.autoStopRequested = false;
   }
 
+  // 从磁盘状态装配一个可继续辩论的 Committee：不新建目录（复用给定 dir），
+  // 直接注入 round/history，state 置为 paused。调用方随后应 saveMeta('paused') 刷新磁盘状态。
+  static resume({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit, dir, round, history }) {
+    const c = new Committee({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit });
+    c.dir = dir;
+    c.round = round;
+    c.history = history;
+    c.state = 'paused';
+    return c;
+  }
+
   setState(s) { this.state = s; this.emit({ type: 'state', data: s }); }
   agentName(id) { return this.agents[id].name; }
   latestSummary() { return this.history.at(-1)?.summary ?? ''; }

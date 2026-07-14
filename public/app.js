@@ -1,5 +1,6 @@
 const $ = s => document.querySelector(s);
 let cfg, sid = null, sideOf = {}, es = null; // agentId -> 'A' | 'B'；es：当前 EventSource 引用（新会话/重连时需先关闭旧连接）
+let archiveDirname = null; // 当前只读归档视图对应的磁盘目录名（供「恢复此会话」按钮使用）
 
 async function boot() {
   try {
@@ -195,6 +196,14 @@ async function refreshSessionList() {
     };
     item.appendChild(title);
     item.appendChild(meta);
+    if (s.archived) {
+      const resume = document.createElement('button');
+      resume.className = 'session-resume';
+      resume.textContent = '↻';
+      resume.title = '恢复此会话继续辩论';
+      resume.onclick = e => { e.stopPropagation(); resumeSession(s.id); };
+      item.appendChild(resume);
+    }
     item.appendChild(del);
     item.onclick = () => s.archived ? openArchive(s.id) : attach(s.id);
     el.appendChild(item);
@@ -221,7 +230,18 @@ async function openArchive(dirname) {
   let data;
   try { data = await (await fetch(`/api/archive/${encodeURIComponent(dirname)}`)).json(); } catch (e) { return setStatebar('无法读取归档: ' + e.message, true); }
   if (data.error) return setStatebar(data.error, true);
+  archiveDirname = dirname;
   showArchiveView(data.topic, data.sessionMd);
+}
+
+// ---- 恢复归档会话继续辩论：从磁盘状态重新装配 Committee，attach 到重建的活动会话 ----
+async function resumeSession(dirname) {
+  let r;
+  try { r = await (await fetch(`/api/archive/${encodeURIComponent(dirname)}/resume`, { method: 'POST' })).json(); }
+  catch (e) { return setStatebar('恢复失败: ' + e.message, true); }
+  if (r.error) return setStatebar(r.error, true);
+  await attach(r.id);
+  await refreshSessionList();
 }
 
 $('#newSessionBtn').onclick = () => {
@@ -233,6 +253,7 @@ $('#newSessionBtn').onclick = () => {
 };
 
 $('#archiveBack').onclick = () => { sid ? showArena() : showSetup(); };
+$('#archiveResume').onclick = () => { if (archiveDirname) resumeSession(archiveDirname); };
 
 $('#start').onclick = async () => {
   const roles = { debaters: [$('#debA').value, $('#debB').value], judge: $('#judge').value, summarizer: $('#summ').value };

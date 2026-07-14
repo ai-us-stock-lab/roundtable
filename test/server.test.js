@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -226,4 +226,92 @@ test('挂载不存在的工作区目录返回 400', async () => {
     body: JSON.stringify({ topic: 'ws测试', materials: '', template: 'general', workspace: 'C:/definitely/not/exist/xyz', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' } }),
   });
   assert.equal(r.status, 400);
+});
+
+// ---- 会话跨重启恢复 ----
+
+test('POST /api/archive/:dirname/resume 跨实例恢复：装配 Committee、SSE 缓冲回放、可继续辩论并真实衔接历史', async () => {
+  const resumeSessionsDir = mkdtempSync(path.join(tmpdir(), 'rt-resume-'));
+  const s1 = await startServer({ port: 0, agentsFile: 'adapters/agents.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
+  const base1 = `http://127.0.0.1:${s1.port}`;
+  const create = await (await fetch(base1 + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '恢复测试议题', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 3 }),
+  })).json();
+  await fetch(`${base1}/api/sessions/${create.id}/round`, { method: 'POST' });
+  let detail = {};
+  for (let i = 0; i < 50 && detail.state !== 'paused'; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    detail = await (await fetch(`${base1}/api/sessions/${create.id}`)).json();
+  }
+  assert.equal(detail.state, 'paused');
+  const dirname = path.basename(detail.dir);
+  await s1.close(); // 模拟服务重启：第一个实例彻底关闭，进程内 sessions Map 消失
+
+  const s2 = await startServer({ port: 0, agentsFile: 'adapters/agents.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
+  const base2 = `http://127.0.0.1:${s2.port}`;
+  try {
+    const resumed = await (await fetch(`${base2}/api/archive/${encodeURIComponent(dirname)}/resume`, { method: 'POST' })).json();
+    assert.ok(resumed.id, 'resume 应返回新的活动会话 id');
+
+    const got = await (await fetch(`${base2}/api/sessions/${resumed.id}`)).json();
+    assert.equal(got.state, 'paused');
+    assert.equal(got.round, 1);
+
+    // SSE 缓冲应含 label r1 的 chunk 与 summary 事件
+    const sse = await fetch(`${base2}/api/sessions/${resumed.id}/events`);
+    const reader = sse.body.getReader();
+    let text = '';
+    for (let i = 0; i < 20 && !(text.includes('"label":"r1"') && text.includes('"type":"summary"')); i++) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += new TextDecoder().decode(value);
+    }
+    reader.cancel();
+    assert.match(text, /"label":"r1"/);
+    assert.match(text, /"type":"summary"/);
+
+    // 继续跑第 2 轮：round 应推进，且第 2 轮简报应真实接上第 1 轮对方（mockA）发言
+    await fetch(`${base2}/api/sessions/${resumed.id}/round`, { method: 'POST' });
+    let s = {};
+    for (let i = 0; i < 50 && s.round !== 2; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      s = await (await fetch(`${base2}/api/sessions/${resumed.id}`)).json();
+    }
+    assert.equal(s.round, 2);
+    const r1OutputA = readFileSync(path.join(resumeSessionsDir, dirname, 'raw', 'r1-mockA.md'), 'utf8');
+    const briefB = readFileSync(path.join(resumeSessionsDir, dirname, 'prompts', 'r2-mockB.md'), 'utf8');
+    assert.ok(briefB.includes(r1OutputA.trim()), '第 2 轮 mockB 的简报应包含第 1 轮对手（mockA）发言原文——证明 history 真实接上了');
+  } finally {
+    await s2.close();
+  }
+});
+
+test('resume：不存在的归档目录返回 404', async () => {
+  const r = await fetch(BASE + '/api/archive/' + encodeURIComponent('no-such-dir') + '/resume', { method: 'POST' });
+  assert.equal(r.status, 404);
+});
+
+test('resume：metadata 中的模板名在当前 templates 中找不到时返回 400', async () => {
+  const dirname = '2020-02-02-bad-template';
+  const dir = path.join(sessionsDir, dirname);
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, 'metadata.json'), JSON.stringify({
+    status: 'paused', topic: '坏模板', rounds: 0, updatedAt: new Date().toISOString(),
+    template: '不存在的模板名', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' },
+    mode: 'manual', maxRounds: 3, agents: {},
+  }), 'utf8');
+  const r = await fetch(BASE + '/api/archive/' + encodeURIComponent(dirname) + '/resume', { method: 'POST' });
+  assert.equal(r.status, 400);
+});
+
+test('resume：目标目录已是活动会话时返回 409', async () => {
+  const create = await (await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '活动中防重复恢复', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 2 }),
+  })).json();
+  const detail = await (await fetch(BASE + '/api/sessions/' + create.id)).json();
+  const dirname = path.basename(detail.dir);
+  const r = await fetch(BASE + '/api/archive/' + encodeURIComponent(dirname) + '/resume', { method: 'POST' });
+  assert.equal(r.status, 409);
 });

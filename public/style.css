@@ -41,3 +41,6 @@ button { cursor:pointer; } button:hover { border-color:var(--accent); }
 .session-del { position: absolute; top: 6px; right: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; border: none; background: transparent; color: var(--fg); opacity: 0; cursor: pointer; border-radius: 4px; }
 .session-item:hover .session-del { opacity: 0.55; }
 .session-del:hover { opacity: 1 !important; background: color-mix(in srgb, var(--err) 18%, var(--bg)); color: var(--err); }
+.session-resume { position: absolute; top: 6px; right: 26px; padding: 0 6px; font-size: 12px; line-height: 18px; border: none; background: transparent; color: var(--fg); opacity: 0; cursor: pointer; border-radius: 4px; }
+.session-item:hover .session-resume { opacity: 0.55; }
+.session-resume:hover { opacity: 1 !important; background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--accent); }

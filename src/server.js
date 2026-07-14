@@ -138,29 +138,93 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         sessions.set(id, entry);
         return json(res, 200, { id });
       }
-      if (url.pathname.startsWith('/api/archive/') && (req.method === 'GET' || req.method === 'DELETE')) {
+      if (url.pathname.startsWith('/api/archive/')) {
+        const rest = url.pathname.slice('/api/archive/'.length);
+        const slashIdx = rest.indexOf('/');
+        const rawDirname = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+        const sub = slashIdx === -1 ? '' : rest.slice(slashIdx + 1);
         let dirname;
-        try { dirname = decodeURIComponent(url.pathname.slice('/api/archive/'.length)); } catch { return json(res, 404, { error: 'not found' }); }
+        try { dirname = decodeURIComponent(rawDirname); } catch { return json(res, 404, { error: 'not found' }); }
         let entries;
         try { entries = await readdir(sessionsDir); } catch { entries = []; }
-        if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
-        const dir = path.join(sessionsDir, dirname);
-        if (req.method === 'DELETE') {
-          // 不允许删除仍挂在活动会话名下的目录（先删活动会话）
-          const activeDirs = new Set([...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)).filter(Boolean));
-          if (activeDirs.has(dirname)) return json(res, 409, { error: '该会话仍在进行中，请先删除活动会话' });
-          await rm(dir, { recursive: true, force: true });
-          return json(res, 200, { ok: true });
-        }
-        let sessionMd;
-        try { sessionMd = await readFile(path.join(dir, 'session.md'), 'utf8'); }
-        catch {
-          try { sessionMd = await readFile(path.join(dir, 'problem.md'), 'utf8'); }
+        const activeDirs = () => new Set([...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)).filter(Boolean));
+
+        if (sub === 'resume' && req.method === 'POST') {
+          if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
+          if (activeDirs().has(dirname)) return json(res, 409, { error: '该会话已在进行中' });
+          const dir = path.join(sessionsDir, dirname);
+          let meta;
+          try { meta = JSON.parse(await readFile(path.join(dir, 'metadata.json'), 'utf8')); }
           catch { return json(res, 404, { error: '归档不存在' }); }
+          const template = templates[meta.template];
+          if (!template) return json(res, 400, { error: '未知模板: ' + meta.template });
+          const materials = await readFile(path.join(dir, 'problem.md'), 'utf8').catch(() => '');
+          const rounds = meta.rounds || 0;
+          const history = [];
+          for (let n = 1; n <= rounds; n++) {
+            const briefs = {}, outputs = {};
+            for (const d of meta.roles.debaters) {
+              briefs[d] = await readFile(path.join(dir, 'prompts', `r${n}-${d}.md`), 'utf8').catch(() => '');
+              const raw = await readFile(path.join(dir, 'raw', `r${n}-${d}.md`), 'utf8').catch(() => null);
+              outputs[d] = raw === null ? { ok: false, error: 'missing', text: '' } : { ok: true, text: raw };
+            }
+            const summary = await readFile(path.join(dir, 'summaries', `r${n}.md`), 'utf8').catch(() => '');
+            history.push({ briefs, outputs, summary });
+          }
+          const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+          const now = new Date().toISOString();
+          const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };
+          const committee = Committee.resume({
+            topic: meta.topic, materials, agents: meta.agents, roles: meta.roles, template,
+            mode: meta.mode, maxRounds: meta.maxRounds, baseDir: sessionsDir,
+            dir, round: rounds, history,
+            emit: ev => {
+              entry.events.push(ev);
+              entry.updatedAt = new Date().toISOString();
+              const line = `data: ${JSON.stringify(ev)}\n\n`;
+              for (const c of entry.clients) {
+                try { c.write(line); } catch { entry.clients.delete(c); }
+              }
+            },
+          });
+          entry.committee = committee;
+          await committee.saveMeta('paused');
+          // 合成事件缓冲：供新连上的前端 SSE 回放重建界面（辩手栏、摘要、裁决卡）
+          entry.events.push({ type: 'state', data: 'paused' });
+          for (let n = 1; n <= rounds; n++) {
+            const h = history[n - 1];
+            for (const d of meta.roles.debaters) {
+              const o = h.outputs[d];
+              entry.events.push({ type: 'chunk', agentId: d, label: `r${n}`, data: o.ok ? o.text : '' });
+              entry.events.push({ type: 'agent-status', agentId: d, label: `r${n}`, data: o.ok ? 'done' : 'failed:' + o.error });
+            }
+            entry.events.push({ type: 'summary', round: n, data: h.summary });
+          }
+          const judgeCard = await readFile(path.join(dir, 'judge-card.md'), 'utf8').catch(() => null);
+          if (judgeCard !== null) entry.events.push({ type: 'judge-card', data: judgeCard });
+          sessions.set(id, entry);
+          return json(res, 200, { id });
         }
-        let topic = dirname;
-        try { topic = JSON.parse(await readFile(path.join(dir, 'metadata.json'), 'utf8')).topic ?? topic; } catch { /* 无 metadata 时退化用目录名 */ }
-        return json(res, 200, { topic, sessionMd });
+
+        if (sub === '' && (req.method === 'GET' || req.method === 'DELETE')) {
+          if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
+          const dir = path.join(sessionsDir, dirname);
+          if (req.method === 'DELETE') {
+            // 不允许删除仍挂在活动会话名下的目录（先删活动会话）
+            if (activeDirs().has(dirname)) return json(res, 409, { error: '该会话仍在进行中，请先删除活动会话' });
+            await rm(dir, { recursive: true, force: true });
+            return json(res, 200, { ok: true });
+          }
+          let sessionMd;
+          try { sessionMd = await readFile(path.join(dir, 'session.md'), 'utf8'); }
+          catch {
+            try { sessionMd = await readFile(path.join(dir, 'problem.md'), 'utf8'); }
+            catch { return json(res, 404, { error: '归档不存在' }); }
+          }
+          let topic = dirname;
+          try { topic = JSON.parse(await readFile(path.join(dir, 'metadata.json'), 'utf8')).topic ?? topic; } catch { /* 无 metadata 时退化用目录名 */ }
+          return json(res, 200, { topic, sessionMd });
+        }
       }
       const m = url.pathname.match(/^\/api\/sessions\/([a-z0-9]+)(\/([a-z-]+))?$/);
       if (m) {
