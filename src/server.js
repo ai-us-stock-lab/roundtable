@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { readFile, readdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
 import { loadTemplates } from './templates.js';
@@ -7,6 +8,22 @@ import { resolveCliPath } from './resolve.js';
 
 // 静态文件白名单（无通用静态服务，杜绝路径穿越）
 const STATIC = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/style.css': ['public/style.css', 'text/css'] };
+
+// 按会话派生 agent 配置：挂载工作区（项目目录只读访问）时，cwd 指向项目根，
+// 且配置了 workspaceArgs 的 adapter 换用只读工具集参数（如 claude 放开 Read/Grep/Glob）。
+// 深拷贝，绝不污染全局 adapter 配置。
+export function deriveSessionAgents(agents, ids, workspace) {
+  const out = {};
+  for (const id of new Set(ids)) {
+    const a = structuredClone(agents[id]);
+    if (workspace) {
+      a.cwd = workspace;
+      if (a.workspaceArgs) a.command = [a.command[0], ...a.workspaceArgs];
+    }
+    out[id] = a;
+  }
+  return out;
+}
 
 export async function startServer({ port = 7777, agentsFile = 'adapters/agents.json', templatesDir = 'templates', sessionsDir = 'sessions' } = {}) {
   const agents = JSON.parse(await readFile(agentsFile, 'utf8'));
@@ -77,7 +94,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       if (url.pathname === '/api/draft' && req.method === 'POST') {
         const body = await readBody(req);
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
-        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? ''), template: String(body.template ?? '') });
+        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? ''), template: String(body.template ?? ''), workspace: String(body.workspace ?? '') });
         while (drafts.size > 20) drafts.delete(drafts.keys().next().value); // 只保留最近 20 份
         return json(res, 200, { id });
       }
@@ -91,12 +108,18 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         if (!template) return json(res, 400, { error: '未知模板: ' + body.template });
         for (const id of [...(body.roles?.debaters ?? []), body.roles?.judge, body.roles?.summarizer])
           if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
+        // 工作区挂载：参会 AI 以该目录为只读工作目录，可自行查阅项目文件
+        const workspace = String(body.workspace ?? '').trim();
+        if (workspace && !existsSync(workspace)) return json(res, 400, { error: '项目目录不存在: ' + workspace });
+        let materials = body.materials ?? '';
+        if (workspace) materials += '\n\n---\n参会说明：你的工作目录就是该项目的根目录（只读）。发言前请先自行查阅关键文件核实简报中的说法；引用事实时注明文件路径。';
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         const now = new Date().toISOString();
         const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };
+        const roleIds = [...body.roles.debaters, body.roles.judge, body.roles.summarizer];
         const committee = new Committee({
-          topic: body.topic, materials: body.materials ?? '',
-          agents: Object.fromEntries([...body.roles.debaters, body.roles.judge, body.roles.summarizer].map(x => [x, agents[x]])),
+          topic: body.topic, materials,
+          agents: deriveSessionAgents(agents, roleIds, workspace),
           roles: body.roles, template, mode: body.mode ?? 'manual',
           maxRounds: Math.min(Math.max(Number(body.maxRounds) || 4, 1), 10),
           baseDir: sessionsDir,

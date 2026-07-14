@@ -200,3 +200,30 @@ test('draft 预填：POST 存草稿，GET 取回，未知 404', async () => {
   assert.equal(got.template, 'consult');
   assert.equal((await fetch(BASE + '/api/draft/nope')).status, 404);
 });
+
+test('deriveSessionAgents：挂载工作区时切换 cwd 与只读工具集', async () => {
+  const { deriveSessionAgents } = await import('../src/server.js');
+  const base = {
+    claude: { name: 'Claude', command: ['claude.cmd', '-p', '--disallowedTools', 'ALL'], workspaceArgs: ['-p', '--disallowedTools', 'Bash,Edit,Write'], cwd: 'workdir', roles: ['debater'] },
+    codex: { name: 'Codex', command: ['codex.exe', 'exec', '--sandbox', 'read-only'], cwd: 'workdir', roles: ['debater'] },
+  };
+  const ws = 'C:/some/project';
+  const derived = deriveSessionAgents(base, ['claude', 'codex'], ws);
+  assert.equal(derived.claude.cwd, ws);
+  assert.equal(derived.codex.cwd, ws);
+  assert.deepEqual(derived.claude.command, ['claude.cmd', '-p', '--disallowedTools', 'Bash,Edit,Write']); // 换成只读工具集
+  assert.deepEqual(derived.codex.command, base.codex.command); // 无 workspaceArgs 的保持原样（沙箱本就只读）
+  const noWs = deriveSessionAgents(base, ['claude'], '');
+  assert.equal(noWs.claude.cwd, 'workdir'); // 不挂载则一切照旧
+  assert.deepEqual(noWs.claude.command, base.claude.command);
+  noWs.claude.cwd = 'mutated';
+  assert.equal(base.claude.cwd, 'workdir'); // 派生是深拷贝，不污染全局配置
+});
+
+test('挂载不存在的工作区目录返回 400', async () => {
+  const r = await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: 'ws测试', materials: '', template: 'general', workspace: 'C:/definitely/not/exist/xyz', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' } }),
+  });
+  assert.equal(r.status, 400);
+});

@@ -33,6 +33,7 @@ async function applyDraftFromHash() {
     $('#materials').value = d.materials ?? '';
     // 发起方建议的模板也一并选好（例如项目会诊）——模板选错会导致顾问输出结构完全不对题
     if (d.template && [...$('#tpl').options].some(o => o.value === d.template)) $('#tpl').value = d.template;
+    if (d.workspace) $('#workspace').value = d.workspace;
     setStatebar('议题、背景材料与模板已由项目对话预填——选好阵容后点「开始第 1 轮」');
   } catch { /* 服务波动时静默，用户可手动填 */ }
   history.replaceState(null, '', location.pathname); // 用后清掉 hash，防刷新重复提示
@@ -238,7 +239,7 @@ $('#start').onclick = async () => {
   try {
     r = await (await fetch('/api/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, roles, mode: 'manual' }),
+      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, workspace: $('#workspace').value.trim(), roles, mode: 'manual' }),
     })).json();
   } catch (e) {
     btn.disabled = false;

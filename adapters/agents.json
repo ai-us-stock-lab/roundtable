@@ -73,6 +73,14 @@
       "debater",
       "judge",
       "summarizer"
+    ],
+    "workspaceArgs": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--disallowedTools",
+      "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task"
     ]
   },
   "codex": {
