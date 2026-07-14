@@ -34,6 +34,12 @@ process.stdin.on('end', () => {
     process.stdout.write(JSON.stringify({ result: rest.trim() }));
     process.exit(0);
   }
+  if (first === '#stream2') {
+    process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', apiKeySource: 'none' }) + '\n');
+    process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'assistant text piece' }] } }) + '\n');
+    process.stdout.write(JSON.stringify({ type: 'result', result: rest.trim() }) + '\n');
+    process.exit(0);
+  }
   if (first === '#stream') {
     process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init' }) + '\n');
     process.stdout.write(JSON.stringify({ type: 'result', result: rest.trim() }) + '\n');

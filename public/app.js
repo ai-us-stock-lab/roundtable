@@ -101,6 +101,7 @@ $('#start').onclick = async () => {
     return setStatebar(r.error, true);
   }
   sid = r.id;
+  $('#setupbar').hidden = true; // 创建成功后隐藏建会话页提示条（否则"正在创建会话…"残留）
   sideOf = { [roles.debaters[0]]: 'A', [roles.debaters[1]]: 'B' };
   $('#colA .name').textContent = cfg.agents[roles.debaters[0]].name;
   $('#colB .name').textContent = cfg.agents[roles.debaters[1]].name;

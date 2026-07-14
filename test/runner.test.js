@@ -141,3 +141,18 @@ test('dropLines 过滤匹配行', async () => {
   const r = await runAgent(MOCK({ dropLines: ['^session_id:'] }), '#echo\nsession_id: abc123\nreal answer');
   assert.equal(r.text, 'real answer');
 });
+
+test('stream-json 的 onChunk 只推助手文本，不推原始事件', async () => {
+  const chunks = [];
+  const r = await runAgent(MOCK({ output: 'stream-json' }), '#stream2\nfinal answer', { onChunk: s => chunks.push(s) });
+  assert.equal(r.ok, true);
+  const streamed = chunks.join('');
+  assert.match(streamed, /assistant text piece/);
+  assert.doesNotMatch(streamed, /"type"|apiKeySource|system/);
+});
+
+test('json 输出模式不推中间 chunk', async () => {
+  const chunks = [];
+  await runAgent(MOCK({ output: 'json' }), '#json\nparsed answer', { onChunk: s => chunks.push(s) });
+  assert.equal(chunks.length, 0);
+});

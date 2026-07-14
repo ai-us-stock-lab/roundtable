@@ -33,6 +33,20 @@ function parseOutput(mode, raw) {
   return raw.trim();
 }
 
+// 从 stream-json 单行事件中提取可展示的助手文本（claude 的 assistant 事件）。
+// system/init/result 等内部事件返回空串——它们不该出现在用户眼前的发言栏里。
+export function extractChunkText(line) {
+  const t = line.trim();
+  if (!t.startsWith('{')) return '';
+  try {
+    const ev = JSON.parse(t);
+    if (ev.type === 'assistant' && Array.isArray(ev.message?.content)) {
+      return ev.message.content.filter(c => c.type === 'text' && typeof c.text === 'string').map(c => c.text).join('');
+    }
+  } catch { /* 半行/坏行忽略，等缓冲齐 */ }
+  return '';
+}
+
 // 按 adapter 配置的正则逐行过滤输出（如 hermes 的 "session_id: xxx" 前缀行）
 function applyDropLines(text, dropLines) {
   if (!dropLines?.length) return text;
@@ -106,10 +120,24 @@ export async function runAgent(cfg, prompt, opts = {}) {
       finish({ ok: false, error: 'aborted', text: out, exitCode: null });
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
+    // 按输出模式决定推给前端什么：text 原样流式；stream-json 逐行解析只推助手文本；
+    // json 不推中间流（整体是一份 JSON，中间片段对人无意义，最终结果由 text 呈现）。
+    let lineBuf = '';
     child.stdout.on('data', d => {
       const s = d.toString();
       out += s;
-      opts.onChunk?.(s);
+      if (!opts.onChunk) return;
+      if (cfg.output === 'stream-json') {
+        lineBuf += s;
+        const lines = lineBuf.split('\n');
+        lineBuf = lines.pop();
+        for (const line of lines) {
+          const text = extractChunkText(line);
+          if (text) opts.onChunk(text);
+        }
+      } else if (cfg.output !== 'json') {
+        opts.onChunk(s);
+      }
     });
     child.stderr.on('data', d => (err += d.toString()));
     child.on('error', e => finish({ ok: false, error: 'spawn:' + (e.code ?? e.message), text: out, exitCode: null }));
