@@ -13,6 +13,12 @@ if (process.argv[2] === '--from-file') {
 let input = '';
 process.stdin.on('data', d => (input += d));
 process.stdin.on('end', () => {
+  // 测试可控固定输出：存在 MOCK_FIXED_OUTPUT 时忽略 stdin 内容，恒定输出该值
+  // （用于构造"摘要内容与轮次无关"的场景，如假收敛守卫测试）
+  if (process.env.MOCK_FIXED_OUTPUT !== undefined) {
+    process.stdout.write(process.env.MOCK_FIXED_OUTPUT);
+    process.exit(0);
+  }
   const nl = input.indexOf('\n');
   const first = (nl === -1 ? input : input.slice(0, nl)).trim();
   const rest = nl === -1 ? '' : input.slice(nl + 1);

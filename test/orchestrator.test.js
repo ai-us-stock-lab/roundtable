@@ -150,6 +150,24 @@ test('runAuto 达到 maxRounds 后自动裁决', async () => {
   assert.equal(c.state, 'done');
 });
 
+test('runAuto 假收敛守卫：分歧块恒为空时不误判收敛，跑满 maxRounds', async () => {
+  const { c } = makeCommittee({ maxRounds: 3, mode: 'auto' });
+  // 只让 summarizer(s) 读取 MOCK_FIXED_OUTPUT：每轮摘要恒为不含"分歧分类表"的固定文本，
+  // 因此 extractDisagreementBlock 每轮都返回 ''。旧判定 `s1 && s2 && b1===b2` 会在
+  // 第 2 轮末因 ''===''（且 s1/s2 非空）误判"收敛"而提前 break；新判定要求 b1、b2 非空才收敛，
+  // 应正确跑满 3 轮。
+  c.agents.s.envWhitelist = ['PATH', 'SYSTEMROOT', 'MOCK_FIXED_OUTPUT'];
+  process.env.MOCK_FIXED_OUTPUT = '- 当前共识：无实质进展\n- 已证实事实：无';
+  try {
+    await c.init();
+    await c.runAuto();
+  } finally {
+    delete process.env.MOCK_FIXED_OUTPUT;
+  }
+  assert.equal(c.round, 3, '守卫应生效：不应在空分歧块上假收敛提前 break');
+  assert.equal(c.state, 'done');
+});
+
 test('extractDisagreementBlock 截取分歧段', () => {
   const s = '- 当前共识：x\n- 分歧分类表：\n  事实分歧 | A | B | 查证\n- 已证实事实：y';
   assert.match(extractDisagreementBlock(s), /事实分歧 \| A \| B/);

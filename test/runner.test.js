@@ -94,6 +94,14 @@ test('signal + spawn 失败组合仍返回 spawn 错误（不抛异常）', asyn
   assert.match(String(r.error), /^spawn:/);
 });
 
+test('子进程不读 stdin 即退出时不崩溃（EPIPE 防护）', async () => {
+  // 子进程立即退出、从不读 stdin；写入超过管道缓冲（Windows 默认 64KB）的大 prompt，
+  // 触发 stdin 侧 EPIPE。无防护时 stdin 的 'error' 事件无监听会作为未捕获异常崩溃整个进程。
+  const r = await runAgent(MOCK({ command: [process.execPath, '-e', 'process.exit(3)'] }), 'x'.repeat(1024 * 1024));
+  assert.equal(r.ok, false);
+  assert.match(String(r.error), /^exit:3/);
+});
+
 test('win32 下 .cmd 命令自动经 cmd /c 包装执行', { skip: process.platform !== 'win32' }, async () => {
   // 造一个真实 .cmd：回显固定文本
   const dir = mkdtempSync(path.join(tmpdir(), 'rt-cmd-'));

@@ -100,6 +100,10 @@ export async function runAgent(cfg, prompt, opts = {}) {
       }
       finish({ ok: true, text: parseOutput(cfg.output, out), exitCode: 0 });
     });
+    // 子进程未读完 stdin 即退出时会在 stdin 侧 emit 'error'（EPIPE/EOF）；
+    // 不监听会作为未捕获异常崩溃整个进程。这里吞掉——进程退出本身已由
+    // 上面的 close 处理器归类为 exit/auth 错误，无需在这里重复处理。
+    child.stdin.on('error', () => {});
     if (cfg.input === 'stdin') child.stdin.write(prompt);
     child.stdin.end();
   });

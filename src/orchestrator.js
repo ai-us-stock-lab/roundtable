@@ -167,7 +167,8 @@ export class Committee {
       const entry = await this.runNextRound();
       if (!entry) return; // 被 stopRound 中止
       const [s1, s2] = [this.history.at(-2)?.summary, this.history.at(-1)?.summary];
-      if (s1 && s2 && extractDisagreementBlock(s1) === extractDisagreementBlock(s2)) break; // 分歧收敛
+      const b1 = extractDisagreementBlock(s1 ?? ''), b2 = extractDisagreementBlock(s2 ?? '');
+      if (b1 && b2 && b1 === b2) break; // 分歧收敛（双方分歧块非空且一致才算收敛，防止双空块假收敛）
     }
     if (!this.autoStopRequested) await this.runJudge();
   }

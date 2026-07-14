@@ -34,3 +34,5 @@ templates/<name>/template.json。nantian 模板会把两边各自蒸馏的南添
 
 - Windows 下：resolveCliPath 自动解析 CLI 到 .cmd 路径，spawn 在 win32 下自动经 cmd /c 包装执行，
   无需在 agents.json 中手工修改 command。
+- 半成品会话完整落盘（status: partial）且可人工查阅 session.md，但服务重启后暂不支持从落盘状态
+  恢复继续辩论——属已知未实现项，列为后续增强。
