@@ -13,7 +13,17 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   const sessions = new Map();
 
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
-  const readBody = req => new Promise(r => { let b = ''; req.on('data', d => (b += d)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
+  const MAX_BODY_BYTES = 1024 * 1024; // 1MB 上限，防止无界内存增长
+  const readBody = req => new Promise(r => {
+    let b = ''; let bytes = 0; let done = false;
+    req.on('data', d => {
+      if (done) return;
+      bytes += d.length;
+      if (bytes > MAX_BODY_BYTES) { done = true; req.destroy(); r({}); return; }
+      b += d;
+    });
+    req.on('end', () => { if (done) return; done = true; try { r(JSON.parse(b || '{}')); } catch { r({}); } });
+  });
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -50,7 +60,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           emit: ev => {
             entry.events.push(ev);
             const line = `data: ${JSON.stringify(ev)}\n\n`;
-            for (const c of entry.clients) c.write(line);
+            for (const c of entry.clients) {
+              try { c.write(line); } catch { entry.clients.delete(c); }
+            }
           },
         });
         entry.committee = committee;
@@ -68,7 +80,11 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         // events 是 GET 语义（SSE），必须先放行，再统一做 POST 检查
         if (action === 'events' && req.method === 'GET') {
           res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-          for (const ev of entry.events) res.write(`data: ${JSON.stringify(ev)}\n\n`); // 回放缓冲
+          res.flushHeaders(); // 无缓冲事件回放时也要立即放行响应头，否则客户端会一直等待
+          res.on('error', () => entry.clients.delete(res)); // 双保险：写入触发的 error 事件也要清理
+          try {
+            for (const ev of entry.events) res.write(`data: ${JSON.stringify(ev)}\n\n`); // 回放缓冲
+          } catch { entry.clients.delete(res); return; }
           entry.clients.add(res);
           req.on('close', () => entry.clients.delete(res));
           return;

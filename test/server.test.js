@@ -53,3 +53,22 @@ test('未知会话返回 404', async () => {
   const r = await fetch(BASE + '/api/sessions/nope');
   assert.equal(r.status, 404);
 });
+
+test('SSE 客户端断开后广播不炸（write 异常被吞并移除 client）', async () => {
+  const create = await (await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: 'T2', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 2 }),
+  })).json();
+  // 建立 SSE 连接后立刻粗暴取消（模拟断线）
+  const res = await fetch(`${BASE}/api/sessions/${create.id}/events`);
+  await res.body.cancel();
+  await new Promise(r => setTimeout(r, 50));
+  // 断线后触发一轮（会产生大量广播事件）——若无防护，进程在此崩溃、后续断言无法执行
+  await fetch(`${BASE}/api/sessions/${create.id}/round`, { method: 'POST' });
+  let state = '';
+  for (let i = 0; i < 50 && state !== 'paused'; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    state = (await (await fetch(`${BASE}/api/sessions/${create.id}`)).json()).state;
+  }
+  assert.equal(state, 'paused'); // 服务仍活着且正常完成一轮
+});
