@@ -15,7 +15,7 @@ body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 system-ui,
 #mainContent { flex:1; min-width:0; height:100vh; overflow-y:auto; display:flex; flex-direction:column; }
 #topbar { display:flex; gap:12px; flex-wrap:wrap; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); }
 #topbar input, #topbar select, textarea, button { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 8px; font:inherit; }
-#setup { max-width:760px; margin:24px auto; display:grid; gap:12px; padding:0 12px; }
+#setup { width:100%; max-width:900px; margin:24px auto; display:grid; gap:12px; padding:0 12px; }
 #setup textarea { min-height:90px; width:100%; resize:vertical; }
 button { cursor:pointer; } button:hover { border-color:var(--accent); }
 #arena { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; flex:1; min-height:0; }
