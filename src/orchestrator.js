@@ -137,7 +137,7 @@ export class Committee {
     if (!entry) throw new Error('尚无可跳过的轮次');
     this.abort = new AbortController();
     entry.outputs[agentId] = { ok: false, error: 'skipped', text: '' };
-    this.emit({ type: 'agent-status', agentId, data: 'skipped' });
+    this.emit({ type: 'agent-status', agentId, label: 'r' + this.round, data: 'skipped' });
     await this.summarizeRound();
   }
 

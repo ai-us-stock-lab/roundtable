@@ -92,6 +92,16 @@ test('skipSide 后 summary 记录缺席', async () => {
   assert.match(c.history[0].summary, /缺席/);
 });
 
+test('skipSide 的 agent-status 事件带辩手轮次 label', async () => {
+  const { c, events } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  await c.skipSide('b');
+  const ev = events.find(e => e.type === 'agent-status' && e.data === 'skipped');
+  assert.ok(ev, '应有 skipped 状态事件');
+  assert.match(ev.label ?? '', /^r\d+$/);
+});
+
 test('retrySide 用原简报重跑并刷新摘要', async () => {
   const { c } = makeCommittee();
   await c.init();
