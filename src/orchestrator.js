@@ -161,6 +161,14 @@ export class Committee {
 
   requestAutoStop() { this.autoStopRequested = true; }
 
+  // 摘要失败（如书记 agent 出错）后重跑本轮摘要——换新 AbortController，避免复用已 spent 的信号
+  async resummarize() {
+    if (!this.history.length) throw new Error('尚无可重新摘要的轮次');
+    this.abort = new AbortController();
+    await this.summarizeRound();
+    await this.saveMeta(this.state);
+  }
+
   async runAuto() {
     this.autoStopRequested = false;
     while (this.round < this.maxRounds && !this.autoStopRequested) {

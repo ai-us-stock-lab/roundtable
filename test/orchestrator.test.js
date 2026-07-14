@@ -217,3 +217,15 @@ test('copyJudgeCardTo：裁决卡额外落盘到指定目录', async () => {
   assert.equal(files.length, 1);
   assert.match(files[0], /\.md$/);
 });
+
+test('resummarize 用新 AbortController 重新生成本轮摘要', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  c.stopRound();                 // spend 掉 controller，模拟摘要失败后的现场
+  const oldAbort = c.abort;
+  c.history.at(-1).summary = '（本轮摘要失败：auth）';
+  await c.resummarize();
+  assert.notEqual(c.abort, oldAbort);
+  assert.doesNotMatch(c.history.at(-1).summary, /摘要失败/);
+});

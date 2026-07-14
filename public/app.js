@@ -98,7 +98,7 @@ function onEvent(ev) {
       if (ev.data === 'running') setStatebar('书记（' + name + '）正在整理本轮摘要与分歧分类表…');
     }
   }
-  if (ev.type === 'summary') { $('#summary').textContent = ev.data; }
+  if (ev.type === 'summary') { $('#summary').textContent = ev.data; $('#resummarize').hidden = !/摘要失败/.test(ev.data); }
   if (ev.type === 'round-done') { setStatebar('第 ' + ev.round + ' 轮结束——可插话后继续'); refreshSessionList(); }
   if (ev.type === 'state') setStatebar('状态: ' + ev.data);
   if (ev.type === 'error') {
@@ -267,6 +267,7 @@ $('#auto').onclick = async () => { await sendNote(); await api('auto', { maxRoun
 $('#stop').onclick = () => api('stop');
 $('#dojudge').onclick = () => api('judge');
 $('#partial').onclick = () => api('save-partial');
+$('#resummarize').onclick = () => { $('#resummarize').hidden = true; api('resummarize'); };
 $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre').textContent);
 for (const [sel, side] of [['#colA', 'A'], ['#colB', 'B']]) {
   $(sel + ' .retry').onclick = () => api('retry', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });

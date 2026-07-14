@@ -30,6 +30,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   // 启动时解析每个 agent 的 CLI 路径；解析失败不阻塞服务启动，只标记该 agent 不可用
   for (const [id, a] of Object.entries(agents)) {
     try {
+      if (a.disabled) throw new Error(a.disabled); // 手工禁用（已知运行时必失败的 agent，修好后删 disabled 字段即恢复）
       a.command[0] = resolveCliPath(a);
       console.log(`[adapter] ${id} -> ${a.command[0]}`);
     } catch (e) {
@@ -208,6 +209,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           case 'interject': c.interject(String(body.text ?? '')); return json(res, 200, { ok: true });
           case 'stop': c.stopRound(); return json(res, 200, { ok: true });
           case 'save-partial': return fire(() => c.savePartial());
+          case 'resummarize': return fire(() => c.resummarize());
           default: return json(res, 404, { error: '未知操作: ' + action });
         }
       }
