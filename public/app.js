@@ -192,7 +192,7 @@ $('#start').onclick = async () => {
   try {
     r = await (await fetch('/api/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, roles, mode: 'manual', maxRounds: Number($('#maxR').value) }),
+      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, roles, mode: 'manual' }),
     })).json();
   } catch (e) {
     btn.disabled = false;
@@ -216,7 +216,7 @@ $('#start').onclick = async () => {
   await api('round');
 };
 $('#next').onclick = async () => { await sendNote(); await api('round'); };
-$('#auto').onclick = async () => { await sendNote(); await api('auto'); };
+$('#auto').onclick = async () => { await sendNote(); await api('auto', { maxRounds: Number($('#maxR').value) }); };
 $('#stop').onclick = () => api('stop');
 $('#dojudge').onclick = () => api('judge');
 $('#partial').onclick = () => api('save-partial');

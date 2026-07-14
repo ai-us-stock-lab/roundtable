@@ -161,7 +161,12 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const fire = fn => { fn().catch(e => c.emit({ type: 'error', data: String(e.message ?? e) })); return json(res, 200, { ok: true }); };
         switch (action) {
           case 'round': return fire(() => c.runNextRound());
-          case 'auto': return fire(() => c.runAuto());
+          case 'auto': {
+            // 最大轮数只对自动模式有意义：点「自动跑完」时随请求携带、此处生效
+            const n = Number(body.maxRounds);
+            if (n) c.maxRounds = Math.min(Math.max(n, 1), 10);
+            return fire(() => c.runAuto());
+          }
           case 'judge': return fire(() => c.runJudge());
           case 'retry': return fire(() => c.retrySide(body.agentId));
           case 'skip': return fire(() => c.skipSide(body.agentId));
