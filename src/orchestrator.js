@@ -1,6 +1,9 @@
 import { runAgent } from './runner.js';
 import { buildDebaterR1, buildDebaterRN, buildSummarizer, buildJudge } from './prompts.js';
-import { resolveInjection } from './templates.js';
+import { resolveInjection, expandHome } from './templates.js';
+import { redact } from './redactor.js';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import * as store from './store.js';
 
 export class Committee {
@@ -185,6 +188,13 @@ export class Committee {
     if (r.ok) {
       await store.saveJudgeCard(this.dir, r.text);
       this.emit({ type: 'judge-card', data: r.text });
+      // 若模板设置了 copyJudgeCardTo，则额外落盘一份到该目录
+      if (this.template.copyJudgeCardTo) {
+        const dest = expandHome(this.template.copyJudgeCardTo);
+        await mkdir(dest, { recursive: true });
+        const name = path.basename(this.dir) + '.md';
+        await writeFile(path.join(dest, name), redact(`# 裁决卡：${this.topic}\n\n来源会话：${this.dir}\n\n${r.text}`), 'utf8');
+      }
     }
     await store.assembleSessionMd(this.dir);
     this.setState(r.ok ? 'done' : 'partial');
