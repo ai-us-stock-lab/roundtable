@@ -11,10 +11,11 @@ export async function runAgent(cfg, prompt, opts = {}) {
   const started = Date.now();
   return await new Promise(resolve => {
     let out = '', err = '', settled = false;
+    let timer;
     const finish = r => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       resolve({ raw: out, stderr: err, durationMs: Date.now() - started, ...r });
     };
     let child;
@@ -28,7 +29,7 @@ export async function runAgent(cfg, prompt, opts = {}) {
     } catch (e) {
       return finish({ ok: false, error: 'spawn:' + e.code, text: '', exitCode: null });
     }
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill('SIGKILL');
       finish({ ok: false, error: 'timeout', text: out, exitCode: null });
     }, cfg.timeoutMs);

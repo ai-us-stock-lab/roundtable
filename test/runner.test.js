@@ -44,3 +44,9 @@ test('非零退出返回 exit 错误与 stderr', async () => {
   assert.equal(r.error, 'exit:3');
   assert.match(r.stderr, /mock failure/);
 });
+
+test('spawn 失败（同步抛错）返回 spawn 错误而非异常', async () => {
+  const r = await runAgent(MOCK({ command: [undefined] }), 'hi');
+  assert.equal(r.ok, false);
+  assert.match(String(r.error), /^spawn:/);
+});
