@@ -3,12 +3,23 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
 import { loadTemplates } from './templates.js';
+import { resolveCliPath } from './resolve.js';
 
 // 静态文件白名单（无通用静态服务，杜绝路径穿越）
 const STATIC = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/style.css': ['public/style.css', 'text/css'] };
 
 export async function startServer({ port = 7777, agentsFile = 'adapters/agents.json', templatesDir = 'templates', sessionsDir = 'sessions' } = {}) {
   const agents = JSON.parse(await readFile(agentsFile, 'utf8'));
+  // 启动时解析每个 agent 的 CLI 路径；解析失败不阻塞服务启动，只标记该 agent 不可用
+  for (const [id, a] of Object.entries(agents)) {
+    try {
+      a.command[0] = resolveCliPath(a);
+      console.log(`[adapter] ${id} -> ${a.command[0]}`);
+    } catch (e) {
+      a.unavailable = String(e.message);
+      console.warn(`[adapter] ${id} 不可用: ${e.message}`);
+    }
+  }
   const templates = await loadTemplates(templatesDir);
   const sessions = new Map();
 
@@ -38,8 +49,8 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         } catch { return json(res, 404, { error: 'not found' }); }
       }
       if (url.pathname === '/api/config') {
-        // 只暴露 name/roles，不泄漏 command/envWhitelist 等 adapter 细节
-        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles }]));
+        // 只暴露 name/roles/unavailable，不泄漏 command/envWhitelist 等 adapter 细节
+        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, ...(a.unavailable ? { unavailable: a.unavailable } : {}) }]));
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, { title: t.title }]));
         return json(res, 200, { agents: pub, templates: tpl });
       }

@@ -1,4 +1,26 @@
 {
   "mockA": { "name": "MockA", "command": ["node", "test/mock-cli.cjs"], "input": "stdin", "output": "text", "timeoutMs": 5000, "envWhitelist": ["PATH", "SYSTEMROOT"], "cwd": ".", "roles": ["debater", "judge", "summarizer"] },
-  "mockB": { "name": "MockB", "command": ["node", "test/mock-cli.cjs"], "input": "stdin", "output": "text", "timeoutMs": 5000, "envWhitelist": ["PATH", "SYSTEMROOT"], "cwd": ".", "roles": ["debater", "judge", "summarizer"] }
+  "mockB": { "name": "MockB", "command": ["node", "test/mock-cli.cjs"], "input": "stdin", "output": "text", "timeoutMs": 5000, "envWhitelist": ["PATH", "SYSTEMROOT"], "cwd": ".", "roles": ["debater", "judge", "summarizer"] },
+  "claude": {
+    "name": "Claude",
+    "command": ["cmd", "/c", "claude", "-p", "--output-format", "stream-json", "--verbose", "--disallowedTools", "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Glob,Grep,Read,Task"],
+    "input": "stdin",
+    "output": "stream-json",
+    "timeoutMs": 300000,
+    "envWhitelist": ["PATH", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "COMSPEC", "TEMP", "TMP", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"],
+    "cwd": "workdir",
+    "roles": ["debater", "judge", "summarizer"]
+  },
+  "codex": {
+    "name": "Codex",
+    "command": ["codex", "exec", "--sandbox", "read-only", "--ephemeral"],
+    "commandEnvVar": "CODEX_CLI_PATH",
+    "commandFallbackGlob": "~/AppData/Local/OpenAI/Codex/bin/*/codex.exe",
+    "input": "stdin",
+    "output": "text",
+    "timeoutMs": 300000,
+    "envWhitelist": ["PATH", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "COMSPEC", "TEMP", "TMP", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"],
+    "cwd": "workdir",
+    "roles": ["debater", "judge", "summarizer"]
+  }
 }

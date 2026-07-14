@@ -5,7 +5,7 @@ async function boot() {
   cfg = await (await fetch('/api/config')).json();
   const opts = role => Object.entries(cfg.agents)
     .filter(([, a]) => a.roles.includes(role))
-    .map(([id, a]) => `<option value="${id}">${a.name}</option>`).join('');
+    .map(([id, a]) => `<option value="${id}"${a.unavailable ? ' disabled' : ''}>${a.name}${a.unavailable ? '（不可用）' : ''}</option>`).join('');
   $('#debA').innerHTML = opts('debater');
   $('#debB').innerHTML = opts('debater');
   if ($('#debB').options.length > 1) $('#debB').selectedIndex = 1;
