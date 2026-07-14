@@ -35,15 +35,16 @@ function ensureRoundDiv(side, label) {
 }
 
 let currentRound = 1;
+const isDebaterCall = label => /^r\d+(retry)?$/.test(label ?? ''); // r1、r2retry 等辩手轮次调用；r1summary/judge 等不路由进辩手栏
 function onEvent(ev) {
   if (ev.type === 'chunk') {
     const side = sideOf[ev.agentId];
-    if (!side) return; // summarizer/judge 的流不进辩手栏
+    if (!side || !isDebaterCall(ev.label)) return; // 非辩手轮次（如同一 agent 兼任的 summarizer/judge）的流不进辩手栏
     const pre = ensureRoundDiv(side, '第 ' + currentRound + ' 轮');
     pre.textContent += ev.data;             // textContent：天然防 XSS
     pre.scrollIntoView({ block: 'end' });
   }
-  if (ev.type === 'agent-status' && sideOf[ev.agentId]) badge(sideOf[ev.agentId]).textContent = ev.data;
+  if (ev.type === 'agent-status' && sideOf[ev.agentId] && isDebaterCall(ev.label)) badge(sideOf[ev.agentId]).textContent = ev.data;
   if (ev.type === 'summary') { $('#summary').textContent = ev.data; }
   if (ev.type === 'round-done') { currentRound = ev.round + 1; setStatebar('第 ' + ev.round + ' 轮结束——可插话后继续'); }
   if (ev.type === 'state') setStatebar('状态: ' + ev.data);

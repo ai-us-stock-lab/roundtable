@@ -67,18 +67,18 @@ export class Committee {
 
   async call(agentId, label, prompt) {
     await store.savePrompt(this.dir, label, agentId, prompt);
-    this.emit({ type: 'agent-status', agentId, data: 'running' });
+    this.emit({ type: 'agent-status', agentId, label, data: 'running' });
     const r = await runAgent(this.agents[agentId], prompt, {
-      onChunk: s => this.emit({ type: 'chunk', agentId, data: s }),
+      onChunk: s => this.emit({ type: 'chunk', agentId, label, data: s }),
       signal: this.abort?.signal,
     });
     await store.saveRaw(this.dir, label, agentId,
       r.ok ? r.text : `[${r.error}]\n${r.text}\n--- stderr ---\n${r.stderr}`);
     if (!r.ok) {
       this.errors.push({ label, agentId, error: r.error, at: new Date().toISOString() });
-      this.emit({ type: 'error', agentId, data: r.error });
+      this.emit({ type: 'error', agentId, label, data: r.error });
     }
-    this.emit({ type: 'agent-status', agentId, data: r.ok ? 'done' : 'failed:' + r.error });
+    this.emit({ type: 'agent-status', agentId, label, data: r.ok ? 'done' : 'failed:' + r.error });
     return r;
   }
 

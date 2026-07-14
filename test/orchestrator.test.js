@@ -26,6 +26,18 @@ function makeCommittee(over = {}) {
   return { c, events };
 }
 
+test('chunk 与 agent-status 事件携带 label（供前端按角色路由）', async () => {
+  const { c, events } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  const chunk = events.find(e => e.type === 'chunk');
+  assert.match(chunk.label, /^r1/);
+  const summaryChunk = events.find(e => e.type === 'chunk' && e.label === 'r1summary');
+  assert.ok(summaryChunk, 'summarizer 的 chunk 也应带 label r1summary');
+  const status = events.find(e => e.type === 'agent-status');
+  assert.ok(status.label);
+});
+
 test('第 1 轮是 clean room：双方简报互不含对方内容', async () => {
   const { c } = makeCommittee();
   await c.init();
