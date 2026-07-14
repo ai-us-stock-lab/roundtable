@@ -31,7 +31,9 @@ async function applyDraftFromHash() {
     if (d.error) return setStatebar('预填草稿已过期，请手动填写议题', true);
     $('#topic').value = d.topic ?? '';
     $('#materials').value = d.materials ?? '';
-    setStatebar('议题与背景材料已由项目对话预填——选好阵容后点「开始第 1 轮」');
+    // 发起方建议的模板也一并选好（例如项目会诊）——模板选错会导致顾问输出结构完全不对题
+    if (d.template && [...$('#tpl').options].some(o => o.value === d.template)) $('#tpl').value = d.template;
+    setStatebar('议题、背景材料与模板已由项目对话预填——选好阵容后点「开始第 1 轮」');
   } catch { /* 服务波动时静默，用户可手动填 */ }
   history.replaceState(null, '', location.pathname); // 用后清掉 hash，防刷新重复提示
 }
@@ -39,6 +41,18 @@ async function applyDraftFromHash() {
 function feed(side) { return $(side === 'A' ? '#colA .feed' : '#colB .feed'); }
 function badge(side) { return $(side === 'A' ? '#colA .badge' : '#colB .badge'); }
 let roundDivs = {};
+
+// 运行计时器：running 徽标每秒更新耗时，让人看到"确实在跑、跑了多久"
+const badgeTimers = {};
+function startBadgeTimer(side) {
+  const t0 = Date.now();
+  badge(side).textContent = 'running · 0s';
+  badgeTimers[side] = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    badge(side).textContent = 'running · ' + (s >= 60 ? Math.floor(s / 60) + 'm' + (s % 60) + 's' : s + 's');
+  }, 1000);
+}
+function stopBadgeTimer(side) { if (badgeTimers[side]) { clearInterval(badgeTimers[side]); delete badgeTimers[side]; } }
 
 function ensureRoundDiv(side, label) {
   const key = side + label;
@@ -68,7 +82,21 @@ function onEvent(ev) {
     pre.textContent += ev.data;             // textContent：天然防 XSS
     pre.scrollIntoView({ block: 'end' });
   }
-  if (ev.type === 'agent-status' && sideOf[ev.agentId] && isDebaterCall(ev.label)) badge(sideOf[ev.agentId]).textContent = ev.data;
+  if (ev.type === 'agent-status') {
+    const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
+    if (sideOf[ev.agentId] && isDebaterCall(ev.label)) {
+      // 辩手徽标：running 时带计时器（阶段性反馈——至少让人知道跑了多久、没有卡死）
+      const side = sideOf[ev.agentId];
+      stopBadgeTimer(side);
+      if (ev.data === 'running') startBadgeTimer(side);
+      else badge(side).textContent = ev.data;
+    } else if (ev.label === 'judge') {
+      // 仲裁运行时显示身份（此前只有干巴巴的 judging 状态）
+      if (ev.data === 'running') setStatebar('仲裁（' + name + '）正在裁决——比较证据强弱与证伪点质量…');
+    } else if (/summary$/.test(ev.label ?? '')) {
+      if (ev.data === 'running') setStatebar('书记（' + name + '）正在整理本轮摘要与分歧分类表…');
+    }
+  }
   if (ev.type === 'summary') { $('#summary').textContent = ev.data; }
   if (ev.type === 'round-done') { setStatebar('第 ' + ev.round + ' 轮结束——可插话后继续'); refreshSessionList(); }
   if (ev.type === 'state') setStatebar('状态: ' + ev.data);
@@ -107,6 +135,7 @@ function showArchiveView(topic, sessionMd) {
 
 // ---- 重置会话相关 UI 状态（新会话 / 重连前调用）----
 function resetSessionUI() {
+  stopBadgeTimer('A'); stopBadgeTimer('B');
   $('#colA .feed').innerHTML = ''; $('#colB .feed').innerHTML = '';
   $('#colA .badge').textContent = ''; $('#colB .badge').textContent = '';
   $('#colA .name').textContent = ''; $('#colB .name').textContent = '';

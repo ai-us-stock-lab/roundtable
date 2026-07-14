@@ -77,7 +77,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       if (url.pathname === '/api/draft' && req.method === 'POST') {
         const body = await readBody(req);
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
-        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? '') });
+        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? ''), template: String(body.template ?? '') });
         while (drafts.size > 20) drafts.delete(drafts.keys().next().value); // 只保留最近 20 份
         return json(res, 200, { id });
       }
