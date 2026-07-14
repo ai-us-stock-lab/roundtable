@@ -14,8 +14,8 @@ button { cursor:pointer; } button:hover { border-color:var(--accent); }
 .round h4 { font-size:12px; opacity:.7; margin:12px 0 4px; }
 .round pre, #judgecard pre { white-space:pre-wrap; word-break:break-word; background:color-mix(in srgb, var(--fg) 4%, var(--bg)); padding:8px; border-radius:8px; margin:0; }
 .mid #summary { white-space:pre-wrap; font-size:13px; }
-#statebar { padding:6px 8px; border-radius:6px; margin-bottom:8px; background:color-mix(in srgb, var(--accent) 12%, var(--bg)); }
-#statebar.err { background:color-mix(in srgb, var(--err) 15%, var(--bg)); color:var(--err); }
+#setupbar, #statebar { padding:6px 8px; border-radius:6px; margin-bottom:8px; background:color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+#setupbar.err, #statebar.err { background:color-mix(in srgb, var(--err) 15%, var(--bg)); color:var(--err); }
 #statebar:empty { display:none; }
 #note { width:100%; min-height:60px; margin:8px 0; }
 #controls { display:flex; gap:6px; flex-wrap:wrap; }

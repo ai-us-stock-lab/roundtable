@@ -2,7 +2,11 @@ const $ = s => document.querySelector(s);
 let cfg, sid, sideOf = {}; // agentId -> 'A' | 'B'
 
 async function boot() {
-  cfg = await (await fetch('/api/config')).json();
+  try {
+    cfg = await (await fetch('/api/config')).json();
+  } catch (e) {
+    return setStatebar('无法连接服务（' + e.message + '）——请在 Roundtable 目录运行 npm start 后刷新本页', true);
+  }
   const opts = role => Object.entries(cfg.agents)
     .filter(([, a]) => a.roles.includes(role))
     .map(([id, a]) => `<option value="${id}"${a.unavailable ? ' disabled' : ''}>${a.name}${a.unavailable ? '（不可用）' : ''}</option>`).join('');
@@ -54,7 +58,13 @@ function onEvent(ev) {
   }
   if (ev.type === 'judge-card') { $('#judgecard').hidden = false; $('#judgecard pre').textContent = ev.data; }
 }
-function setStatebar(msg, isErr) { const b = $('#statebar'); b.textContent = msg; b.classList.toggle('err', !!isErr); }
+// 状态提示：会话区可见时写主状态条，否则写建会话页的提示条（修复：创建失败静默无反应）
+function setStatebar(msg, isErr) {
+  const target = $('#arena').hidden ? $('#setupbar') : $('#statebar');
+  target.hidden = false;
+  target.textContent = msg;
+  target.classList.toggle('err', !!isErr);
+}
 
 const api = (action, body) => fetch(`/api/sessions/${sid}/${action}`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}),
@@ -69,11 +79,27 @@ $('#start').onclick = async () => {
   const roles = { debaters: [$('#debA').value, $('#debB').value], judge: $('#judge').value, summarizer: $('#summ').value };
   if (roles.debaters[0] === roles.debaters[1]) return setStatebar('两个辩手不能是同一个 agent', true);
   if (!$('#topic').value.trim()) return setStatebar('请先填写议题', true);
-  const r = await (await fetch('/api/sessions', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, roles, mode: 'manual', maxRounds: Number($('#maxR').value) }),
-  })).json();
-  if (r.error) return setStatebar(r.error, true);
+  const btn = $('#start');
+  btn.disabled = true;
+  const oldLabel = btn.textContent;
+  btn.textContent = '正在创建会话…';
+  setStatebar('正在创建会话…');
+  let r;
+  try {
+    r = await (await fetch('/api/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, roles, mode: 'manual', maxRounds: Number($('#maxR').value) }),
+    })).json();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+    return setStatebar('无法连接服务（' + e.message + '）——请在 Roundtable 目录运行 npm start，然后刷新本页重试', true);
+  }
+  if (r.error) {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+    return setStatebar(r.error, true);
+  }
   sid = r.id;
   sideOf = { [roles.debaters[0]]: 'A', [roles.debaters[1]]: 'B' };
   $('#colA .name').textContent = cfg.agents[roles.debaters[0]].name;
