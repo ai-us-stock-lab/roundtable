@@ -156,3 +156,8 @@ test('json 输出模式不推中间 chunk', async () => {
   await runAgent(MOCK({ output: 'json' }), '#json\nparsed answer', { onChunk: s => chunks.push(s) });
   assert.equal(chunks.length, 0);
 });
+
+test('json 输出：支持 openclaw 的 payloads[].text 结构', async () => {
+  const r = await runAgent(MOCK({ output: 'json' }), '#echo\n{"payloads":[{"text":"来自payloads的回答","mediaUrl":null}],"meta":{"transport":"embedded"}}');
+  assert.equal(r.text, '来自payloads的回答');
+});

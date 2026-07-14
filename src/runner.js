@@ -26,8 +26,12 @@ export function extractStreamText(raw) {
 
 function parseOutput(mode, raw) {
   if (mode === 'json') {
-    try { const j = JSON.parse(raw); return String(j.result ?? j.text ?? raw).trim(); }
-    catch { return raw.trim(); }
+    try {
+      const j = JSON.parse(raw);
+      // 依次尝试各家 CLI 的 JSON 答案字段：通用 result/text → openclaw 的 payloads[].text
+      const payloads = Array.isArray(j.payloads) ? j.payloads.map(p => p?.text).filter(Boolean).join('\n') : '';
+      return String(j.result ?? j.text ?? (payloads || raw)).trim();
+    } catch { return raw.trim(); }
   }
   if (mode === 'stream-json') return extractStreamText(raw);
   return raw.trim();

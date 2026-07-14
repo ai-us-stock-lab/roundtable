@@ -168,11 +168,13 @@
       "roundtable-{NONCE}",
       "-m",
       "{PROMPT}",
-      "--json"
+      "--json",
+      "--model",
+      "google/gemini-3-flash-preview"
     ],
     "input": "arg",
     "output": "json",
-    "timeoutMs": 300000,
+    "timeoutMs": 420000,
     "envWhitelist": [
       "PATH",
       "USERPROFILE",
@@ -193,8 +195,7 @@
       "debater",
       "judge",
       "summarizer"
-    ],
-    "disabled": "OpenClaw 自身配置待修（gateway token 不匹配 + main agent 模型已下线）——修好后删除本字段即可重新启用"
+    ]
   },
   "qingyue": {
     "name": "清月",
