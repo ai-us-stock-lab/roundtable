@@ -111,3 +111,33 @@ test('win32 下 .cmd 命令自动经 cmd /c 包装执行', { skip: process.platf
   assert.equal(r.ok, true);
   assert.match(r.text, /from-cmd-wrapper/);
 });
+
+test('arg 输入：{PROMPT} 占位符替换进 argv', async () => {
+  const r = await runAgent(MOCK({ command: [process.execPath, '-p', 'process.argv[1]', '{PROMPT}'], input: 'arg' }), 'hello-arg');
+  assert.equal(r.ok, true);
+  assert.equal(r.text, 'hello-arg');
+});
+
+test('arg 输入：无占位符时追加为末参', async () => {
+  const r = await runAgent(MOCK({ command: [process.execPath, '-p', 'process.argv[1]'], input: 'arg' }), 'appended-arg');
+  assert.equal(r.text, 'appended-arg');
+});
+
+test('{NONCE} 每次调用生成不同值', async () => {
+  const mk = () => MOCK({ command: [process.execPath, '-p', 'process.argv[1]', '{NONCE}'], input: 'arg' });
+  const a = await runAgent(mk(), 'x');
+  const b = await runAgent(mk(), 'x');
+  assert.ok(a.text.length >= 6, 'nonce 应非空');
+  assert.notEqual(a.text, b.text);
+});
+
+test('arg 输入超长（win32 argv 上限）报 prompt-too-long', { skip: process.platform !== 'win32' }, async () => {
+  const r = await runAgent(MOCK({ command: [process.execPath, '-p', '1', '{PROMPT}'], input: 'arg' }), 'x'.repeat(40000));
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'prompt-too-long');
+});
+
+test('dropLines 过滤匹配行', async () => {
+  const r = await runAgent(MOCK({ dropLines: ['^session_id:'] }), '#echo\nsession_id: abc123\nreal answer');
+  assert.equal(r.text, 'real answer');
+});

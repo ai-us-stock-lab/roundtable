@@ -33,18 +33,38 @@ function parseOutput(mode, raw) {
   return raw.trim();
 }
 
+// 按 adapter 配置的正则逐行过滤输出（如 hermes 的 "session_id: xxx" 前缀行）
+function applyDropLines(text, dropLines) {
+  if (!dropLines?.length) return text;
+  const patterns = dropLines.map(p => new RegExp(p));
+  return text.split('\n').filter(l => !patterns.some(re => re.test(l))).join('\n').trim();
+}
+
 const AUTH_RE = /log ?in|auth|401|unauthorized|credential|expired/i;
 
 export async function runAgent(cfg, prompt, opts = {}) {
   const started = Date.now();
   let argv = [...cfg.command];
   let tmpDir = null;
+  // {NONCE}：每次调用生成唯一串。用于要求"每次调用都是全新会话"的 CLI
+  //（如 openclaw 的 --session-key roundtable-{NONCE}），保证 clean room 无记忆。
+  const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  argv = argv.map(a => (typeof a === 'string' ? a.replaceAll('{NONCE}', nonce) : a));
   if (cfg.input === 'file') {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'roundtable-'));
     const f = path.join(tmpDir, 'prompt.md');
     writeFileSync(f, prompt, 'utf8');
     if (argv.includes('{PROMPT_FILE}')) argv = argv.map(a => (a === '{PROMPT_FILE}' ? f : a));
     else argv.push(f);
+  }
+  if (cfg.input === 'arg') {
+    // prompt 直接进 argv 的 CLI（openclaw -m / hermes -q）。Windows 命令行总长上限
+    // 约 32767 字符，超限前显式报错，避免截断或诡异失败。
+    if (process.platform === 'win32' && argv.join(' ').length + prompt.length > 30000) {
+      return { ok: false, error: 'prompt-too-long', text: '', raw: '', stderr: '', exitCode: null, durationMs: Date.now() - started };
+    }
+    if (argv.includes('{PROMPT}')) argv = argv.map(a => (a === '{PROMPT}' ? prompt : a));
+    else argv.push(prompt);
   }
   return await new Promise(resolve => {
     let out = '', err = '', settled = false;
@@ -98,7 +118,7 @@ export async function runAgent(cfg, prompt, opts = {}) {
         const auth = AUTH_RE.test(err + out);
         return finish({ ok: false, error: auth ? 'auth' : 'exit:' + code, text: out, exitCode: code });
       }
-      finish({ ok: true, text: parseOutput(cfg.output, out), exitCode: 0 });
+      finish({ ok: true, text: applyDropLines(parseOutput(cfg.output, out), cfg.dropLines), exitCode: 0 });
     });
     // 子进程未读完 stdin 即退出时会在 stdin 侧 emit 'error'（EPIPE/EOF）；
     // 不监听会作为未捕获异常崩溃整个进程。这里吞掉——进程退出本身已由
