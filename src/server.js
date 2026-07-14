@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
 import { loadTemplates } from './templates.js';
@@ -54,6 +54,25 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, { title: t.title }]));
         return json(res, 200, { agents: pub, templates: tpl });
       }
+      if (url.pathname === '/api/sessions' && req.method === 'GET') {
+        const activeDirs = new Set([...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)).filter(Boolean));
+        const active = [...sessions.entries()].map(([id, entry]) => ({
+          id, topic: entry.committee.topic, state: entry.committee.state, round: entry.committee.round,
+          archived: false, updatedAt: entry.updatedAt,
+        }));
+        let archived = [];
+        try {
+          const dirents = await readdir(sessionsDir, { withFileTypes: true });
+          for (const d of dirents) {
+            if (!d.isDirectory() || activeDirs.has(d.name)) continue;
+            let meta;
+            try { meta = JSON.parse(await readFile(path.join(sessionsDir, d.name, 'metadata.json'), 'utf8')); }
+            catch { continue; } // 无 metadata.json（非会话目录）跳过
+            archived.push({ id: d.name, topic: meta.topic, state: meta.status, round: meta.rounds, archived: true, updatedAt: meta.updatedAt });
+          }
+        } catch { /* sessionsDir 尚不存在 */ }
+        return json(res, 200, [...active, ...archived]);
+      }
       if (url.pathname === '/api/sessions' && req.method === 'POST') {
         const body = await readBody(req);
         const template = templates[body.template];
@@ -61,7 +80,8 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         for (const id of [...(body.roles?.debaters ?? []), body.roles?.judge, body.roles?.summarizer])
           if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
-        const entry = { events: [], clients: new Set() };
+        const now = new Date().toISOString();
+        const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };
         const committee = new Committee({
           topic: body.topic, materials: body.materials ?? '',
           agents: Object.fromEntries([...body.roles.debaters, body.roles.judge, body.roles.summarizer].map(x => [x, agents[x]])),
@@ -70,6 +90,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           baseDir: sessionsDir,
           emit: ev => {
             entry.events.push(ev);
+            entry.updatedAt = new Date().toISOString();
             const line = `data: ${JSON.stringify(ev)}\n\n`;
             for (const c of entry.clients) {
               try { c.write(line); } catch { entry.clients.delete(c); }
@@ -81,13 +102,33 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         sessions.set(id, entry);
         return json(res, 200, { id });
       }
+      if (url.pathname.startsWith('/api/archive/') && req.method === 'GET') {
+        let dirname;
+        try { dirname = decodeURIComponent(url.pathname.slice('/api/archive/'.length)); } catch { return json(res, 404, { error: 'not found' }); }
+        let entries;
+        try { entries = await readdir(sessionsDir); } catch { entries = []; }
+        if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
+        const dir = path.join(sessionsDir, dirname);
+        let sessionMd;
+        try { sessionMd = await readFile(path.join(dir, 'session.md'), 'utf8'); }
+        catch {
+          try { sessionMd = await readFile(path.join(dir, 'problem.md'), 'utf8'); }
+          catch { return json(res, 404, { error: '归档不存在' }); }
+        }
+        let topic = dirname;
+        try { topic = JSON.parse(await readFile(path.join(dir, 'metadata.json'), 'utf8')).topic ?? topic; } catch { /* 无 metadata 时退化用目录名 */ }
+        return json(res, 200, { topic, sessionMd });
+      }
       const m = url.pathname.match(/^\/api\/sessions\/([a-z0-9]+)(\/([a-z-]+))?$/);
       if (m) {
         const entry = sessions.get(m[1]);
         if (!entry) return json(res, 404, { error: '会话不存在' });
         const c = entry.committee, action = m[3];
         if (!action && req.method === 'GET')
-          return json(res, 200, { state: c.state, round: c.round, topic: c.topic, dir: c.dir });
+          return json(res, 200, {
+            state: c.state, round: c.round, topic: c.topic, dir: c.dir,
+            roles: c.roles, agentNames: Object.fromEntries(Object.entries(c.agents).map(([id, a]) => [id, a.name])),
+          });
         // events 是 GET 语义（SSE），必须先放行，再统一做 POST 检查
         if (action === 'events' && req.method === 'GET') {
           res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });

@@ -6,38 +6,50 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header id="topbar">
-  <strong>Roundtable</strong>
-  <label>模板 <select id="tpl"></select></label>
-  <label>辩手A <select id="debA"></select></label>
-  <label>辩手B <select id="debB"></select></label>
-  <label>仲裁 <select id="judge"></select></label>
-  <label>书记 <select id="summ"></select></label>
-  <label>最大轮数 <input id="maxR" type="number" min="1" max="10" value="4"></label>
-</header>
-<section id="setup">
-  <div id="setupbar" hidden></div>
-  <textarea id="topic" placeholder="议题：要决策什么？"></textarea>
-  <textarea id="materials" placeholder="背景材料（可选）"></textarea>
-  <button id="start">开始第 1 轮（clean room）</button>
-</section>
-<main id="arena" hidden>
-  <div class="col" id="colA"><h2><span class="name"></span> <span class="badge"></span>
-    <button class="retry">重试</button><button class="skip">跳过</button></h2><div class="feed"></div></div>
-  <div class="col mid">
-    <div id="statebar"></div>
-    <div id="summary"></div>
-    <div id="judgecard" hidden><h3>裁决卡</h3><pre></pre><button id="copycard">复制</button></div>
-    <textarea id="note" placeholder="主持人插话（进入下一轮双方简报）"></textarea>
-    <div id="controls">
-      <button id="next">下一轮</button><button id="auto">自动跑完</button>
-      <button id="stop">停止当前轮</button><button id="dojudge">进入裁决</button>
-      <button id="partial">保存半成品</button>
-    </div>
+<div id="layout">
+  <aside id="sidebar">
+    <button id="newSessionBtn">+ 新会话</button>
+    <div id="sessionList"></div>
+  </aside>
+  <div id="mainContent">
+    <header id="topbar">
+      <strong>Roundtable</strong>
+      <label>模板 <select id="tpl"></select></label>
+      <label>辩手A <select id="debA"></select></label>
+      <label>辩手B <select id="debB"></select></label>
+      <label>仲裁 <select id="judge"></select></label>
+      <label>书记 <select id="summ"></select></label>
+      <label>最大轮数 <input id="maxR" type="number" min="1" max="10" value="4"></label>
+    </header>
+    <section id="setup">
+      <div id="setupbar" hidden></div>
+      <textarea id="topic" placeholder="议题：要决策什么？"></textarea>
+      <textarea id="materials" placeholder="背景材料（可选）"></textarea>
+      <button id="start">开始第 1 轮（clean room）</button>
+    </section>
+    <main id="arena" hidden>
+      <div class="col" id="colA"><h2><span class="name"></span> <span class="badge"></span>
+        <button class="retry">重试</button><button class="skip">跳过</button></h2><div class="feed"></div></div>
+      <div class="col mid">
+        <div id="statebar"></div>
+        <div id="summary"></div>
+        <div id="judgecard" hidden><h3>裁决卡</h3><pre></pre><button id="copycard">复制</button></div>
+        <textarea id="note" placeholder="主持人插话（进入下一轮双方简报）"></textarea>
+        <div id="controls">
+          <button id="next">下一轮</button><button id="auto">自动跑完</button>
+          <button id="stop">停止当前轮</button><button id="dojudge">进入裁决</button>
+          <button id="partial">保存半成品</button>
+        </div>
+      </div>
+      <div class="col" id="colB"><h2><span class="name"></span> <span class="badge"></span>
+        <button class="retry">重试</button><button class="skip">跳过</button></h2><div class="feed"></div></div>
+    </main>
+    <section id="archiveView" hidden>
+      <div id="archiveBar"><button id="archiveBack">← 返回</button> <strong id="archiveTopic"></strong></div>
+      <pre id="archiveContent"></pre>
+    </section>
   </div>
-  <div class="col" id="colB"><h2><span class="name"></span> <span class="badge"></span>
-    <button class="retry">重试</button><button class="skip">跳过</button></h2><div class="feed"></div></div>
-</main>
+</div>
 <script src="/app.js"></script>
 </body>
 </html>

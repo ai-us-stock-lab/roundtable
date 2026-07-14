@@ -1,16 +1,18 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { startServer } from '../src/server.js';
 
 // 用 mock adapter 配置与临时 sessions 目录启动真实服务
+const sessionsDir = mkdtempSync(path.join(tmpdir(), 'rt-srv-'));
 const srv = await startServer({
   port: 0, // 随机可用端口
   agentsFile: 'adapters/agents.json',
   templatesDir: 'templates',
-  sessionsDir: mkdtempSync(path.join(tmpdir(), 'rt-srv-')),
+  sessionsDir,
 });
 const BASE = `http://127.0.0.1:${srv.port}`;
 after(() => srv.close());
@@ -90,4 +92,51 @@ test('广播对 write 抛错的 client：吞异常并将其移除', async () => 
   }
   assert.equal(state, 'paused');
   assert.ok(!entry.clients.has(evil), 'write 抛错的 client 应被移除');
+});
+
+test('GET /api/sessions 列表包含已建活动会话且 archived:false，并带 roles/agentNames', async () => {
+  const create = await (await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: 'T4', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 2 }),
+  })).json();
+  const list = await (await fetch(BASE + '/api/sessions')).json();
+  assert.ok(Array.isArray(list));
+  const item = list.find(s => s.id === create.id);
+  assert.ok(item, '活动会话应出现在列表中');
+  assert.equal(item.archived, false);
+  assert.equal(item.topic, 'T4');
+
+  const detail = await (await fetch(`${BASE}/api/sessions/${create.id}`)).json();
+  assert.deepEqual(detail.roles, { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' });
+  assert.equal(detail.agentNames.mockA, 'MockA');
+  assert.equal(detail.agentNames.mockB, 'MockB');
+});
+
+test('磁盘历史会话出现在列表且 archived:true；GET /api/archive/:dirname 返回 sessionMd', async () => {
+  const dirname = '2020-01-01-fake-history';
+  const dir = path.join(sessionsDir, dirname);
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, 'metadata.json'), JSON.stringify({ status: 'done', topic: '历史议题', rounds: 3, updatedAt: '2020-01-01T00:00:00.000Z' }), 'utf8');
+  await writeFile(path.join(dir, 'session.md'), '# 历史议题\n\n历史正文内容', 'utf8');
+
+  const list = await (await fetch(BASE + '/api/sessions')).json();
+  const item = list.find(s => s.id === dirname);
+  assert.ok(item, '磁盘历史会话应出现在列表中');
+  assert.equal(item.archived, true);
+  assert.equal(item.topic, '历史议题');
+  assert.equal(item.state, 'done');
+  assert.equal(item.round, 3);
+
+  const archive = await (await fetch(`${BASE}/api/archive/${dirname}`)).json();
+  assert.equal(archive.topic, '历史议题');
+  assert.match(archive.sessionMd, /历史正文内容/);
+});
+
+test('路径穿越防护：archive dirname 必须精确匹配 readdir 条目，否则 404', async () => {
+  const r1 = await fetch(`${BASE}/api/archive/${encodeURIComponent('../../etc')}`);
+  assert.equal(r1.status, 404);
+  const r2 = await fetch(`${BASE}/api/archive/` + encodeURIComponent('..\\..\\x'));
+  assert.equal(r2.status, 404);
+  const r3 = await fetch(BASE + '/api/archive/..%2F..%2Fetc');
+  assert.equal(r3.status, 404);
 });
