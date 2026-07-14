@@ -40,3 +40,28 @@ test('metadata 与 session.md 汇总', async () => {
   const meta = JSON.parse(readFileSync(path.join(dir, 'metadata.json'), 'utf8'));
   assert.equal(meta.status, 'done');
 });
+
+test('session.md 包含 judge 原文节且顺序正确', async () => {
+  const { dir } = await makeSession();
+  await store.saveRaw(dir, 'r1', 'claude', '甲方观点');
+  await store.saveRaw(dir, 'judge', 's', '仲裁原文内容');
+  await store.saveJudgeCard(dir, '裁决卡内容');
+  await store.assembleSessionMd(dir);
+  const md = readFileSync(path.join(dir, 'session.md'), 'utf8');
+  assert.match(md, /仲裁原文内容/);
+  assert.ok(md.indexOf('仲裁原文内容') < md.indexOf('裁决卡内容'), 'judge 原文应在裁决卡之前');
+});
+
+test('轮次按数字排序（r10 在 r2 之后）', async () => {
+  const { dir } = await makeSession();
+  for (const r of ['r1', 'r2', 'r10']) await store.saveRaw(dir, r, 'a', `${r}内容`);
+  await store.assembleSessionMd(dir);
+  const md = readFileSync(path.join(dir, 'session.md'), 'utf8');
+  assert.ok(md.indexOf('r2内容') < md.indexOf('r10内容'));
+});
+
+test('slug 截断后不以连字符结尾', async () => {
+  const base = mkdtempSync(path.join(tmpdir(), 'rt-store-'));
+  const dir = await store.createSessionDir(base, 'a'.repeat(39) + '-zzz');
+  assert.ok(!path.basename(dir).endsWith('-'));
+});
