@@ -17,6 +17,23 @@ async function boot() {
   $('#summ').innerHTML = opts('summarizer');
   $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${t.title}</option>`).join('');
   await refreshSessionList();
+  await applyDraftFromHash();
+  // 页面已开着时又发起新会议（仅 hash 变化不重载）→ 同样要预填
+  window.addEventListener('hashchange', applyDraftFromHash);
+}
+
+// 项目对话侧的 AI 通过 POST /api/draft 预存议题+简报，并打开 /#draft=<id>——这里取回填入表单
+async function applyDraftFromHash() {
+  const m = /[#&]draft=([a-z0-9]+)/.exec(location.hash);
+  if (!m) return;
+  try {
+    const d = await (await fetch('/api/draft/' + m[1])).json();
+    if (d.error) return setStatebar('预填草稿已过期，请手动填写议题', true);
+    $('#topic').value = d.topic ?? '';
+    $('#materials').value = d.materials ?? '';
+    setStatebar('议题与背景材料已由项目对话预填——选好阵容后点「开始第 1 轮」');
+  } catch { /* 服务波动时静默，用户可手动填 */ }
+  history.replaceState(null, '', location.pathname); // 用后清掉 hash，防刷新重复提示
 }
 
 function feed(side) { return $(side === 'A' ? '#colA .feed' : '#colB .feed'); }

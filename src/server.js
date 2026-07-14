@@ -22,6 +22,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   }
   const templates = await loadTemplates(templatesDir);
   const sessions = new Map();
+  const drafts = new Map(); // 外部 AI（项目对话侧）预填的议题+简报草稿，浏览器 #draft=<id> 打开即填入表单
 
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
   const MAX_BODY_BYTES = 1024 * 1024; // 1MB 上限，防止无界内存增长
@@ -72,6 +73,17 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           }
         } catch { /* sessionsDir 尚不存在 */ }
         return json(res, 200, [...active, ...archived]);
+      }
+      if (url.pathname === '/api/draft' && req.method === 'POST') {
+        const body = await readBody(req);
+        const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? '') });
+        while (drafts.size > 20) drafts.delete(drafts.keys().next().value); // 只保留最近 20 份
+        return json(res, 200, { id });
+      }
+      if (url.pathname.startsWith('/api/draft/') && req.method === 'GET') {
+        const d = drafts.get(url.pathname.slice('/api/draft/'.length));
+        return d ? json(res, 200, d) : json(res, 404, { error: '草稿不存在' });
       }
       if (url.pathname === '/api/sessions' && req.method === 'POST') {
         const body = await readBody(req);

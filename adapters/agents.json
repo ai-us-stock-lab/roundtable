@@ -186,5 +186,41 @@
       "judge",
       "summarizer"
     ]
+  },
+  "qingyue": {
+    "name": "清月",
+    "command": [
+      "codex",
+      "exec",
+      "--sandbox",
+      "read-only",
+      "--ephemeral"
+    ],
+    "commandEnvVar": "CODEX_CLI_PATH",
+    "commandFallbackGlob": "~/AppData/Local/OpenAI/Codex/bin/*/codex.exe",
+    "input": "stdin",
+    "output": "text",
+    "timeoutMs": 300000,
+    "envWhitelist": [
+      "PATH",
+      "USERPROFILE",
+      "HOME",
+      "APPDATA",
+      "LOCALAPPDATA",
+      "SYSTEMROOT",
+      "COMSPEC",
+      "TEMP",
+      "TMP",
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "ALL_PROXY",
+      "NO_PROXY"
+    ],
+    "cwd": "workdir",
+    "roles": [
+      "debater",
+      "judge",
+      "summarizer"
+    ]
   }
 }

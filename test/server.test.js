@@ -187,3 +187,15 @@ test('auto 动作可携带 maxRounds 覆盖（自动跑完至多 N 轮）', asyn
   assert.equal(s.state, 'done');
   assert.equal(s.round, 1);
 });
+
+test('draft 预填：POST 存草稿，GET 取回，未知 404', async () => {
+  const r = await (await fetch(BASE + '/api/draft', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '会诊议题X', materials: '项目简报内容……' }),
+  })).json();
+  assert.ok(r.id);
+  const got = await (await fetch(BASE + '/api/draft/' + r.id)).json();
+  assert.equal(got.topic, '会诊议题X');
+  assert.match(got.materials, /项目简报/);
+  assert.equal((await fetch(BASE + '/api/draft/nope')).status, 404);
+});
