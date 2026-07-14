@@ -72,3 +72,22 @@ test('SSE 客户端断开后广播不炸（write 异常被吞并移除 client）
   }
   assert.equal(state, 'paused'); // 服务仍活着且正常完成一轮
 });
+
+test('广播对 write 抛错的 client：吞异常并将其移除', async () => {
+  const create = await (await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: 'T3', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 2 }),
+  })).json();
+  const entry = srv.sessions.get(create.id);
+  const evil = { write() { throw new Error('broken pipe'); } };
+  entry.clients.add(evil);
+  // 触发一轮产生广播——防护存在则异常被吞、evil 被移除、轮次正常完成
+  await fetch(`${BASE}/api/sessions/${create.id}/round`, { method: 'POST' });
+  let state = '';
+  for (let i = 0; i < 50 && state !== 'paused'; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    state = (await (await fetch(`${BASE}/api/sessions/${create.id}`)).json()).state;
+  }
+  assert.equal(state, 'paused');
+  assert.ok(!entry.clients.has(evil), 'write 抛错的 client 应被移除');
+});
