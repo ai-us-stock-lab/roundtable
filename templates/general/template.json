@@ -1,0 +1,8 @@
+{
+  "name": "general",
+  "title": "通用辩论",
+  "injections": {},
+  "debaterFormat": "输出必须包含三节：## 证据（每条含出处）、## 假设（未证实前提逐条列出）、## 证伪点（什么信号出现说明你错了）。最后给出你的结论与最小可验证下一步。",
+  "judgeFormat": "",
+  "copyJudgeCardTo": null
+}

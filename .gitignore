@@ -1,0 +1,5 @@
+node_modules/
+sessions/*
+!sessions/.gitkeep
+workdir/*
+!workdir/.gitkeep
