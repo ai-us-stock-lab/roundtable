@@ -121,7 +121,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const committee = new Committee({
           topic: body.topic, materials,
           agents: deriveSessionAgents(agents, roleIds, workspace),
-          roles: body.roles, template, mode: body.mode ?? 'manual',
+          roles: body.roles, template, mode: body.mode ?? 'manual', workspace,
           maxRounds: Math.min(Math.max(Number(body.maxRounds) || 4, 1), 10),
           baseDir: sessionsDir,
           emit: ev => {
@@ -174,8 +174,16 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
           const now = new Date().toISOString();
           const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };
+          // agent 配置优先用当前全局配置重新派生（让 adapter 修复/升级惠及恢复的会话），
+          // 仅当某 agent 已从全局配置中移除时才回退到存档快照
+          const roleIds = [...meta.roles.debaters, meta.roles.judge, meta.roles.summarizer];
+          const currentIds = roleIds.filter(x => agents[x]);
+          const resumedAgents = {
+        ...Object.fromEntries(roleIds.filter(x => !agents[x]).map(x => [x, meta.agents[x]])),
+        ...deriveSessionAgents(agents, currentIds, String(meta.workspace ?? '')),
+          };
           const committee = Committee.resume({
-            topic: meta.topic, materials, agents: meta.agents, roles: meta.roles, template,
+            topic: meta.topic, materials, agents: resumedAgents, roles: meta.roles, template,
             mode: meta.mode, maxRounds: meta.maxRounds, baseDir: sessionsDir,
             dir, round: rounds, history,
             emit: ev => {

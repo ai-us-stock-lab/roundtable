@@ -48,7 +48,7 @@ export class Committee {
   async saveMeta(status) {
     await store.saveMetadata(this.dir, {
       status, topic: this.topic, template: this.template.name, roles: this.roles,
-      mode: this.mode, maxRounds: this.maxRounds, rounds: this.round,
+      mode: this.mode, maxRounds: this.maxRounds, rounds: this.round, workspace: this.workspace,
       agents: this.agents, errors: this.errors, updatedAt: new Date().toISOString(),
     });
   }
