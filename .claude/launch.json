@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "roundtable",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["src/server.js"],
+      "cwd": "C:\\Users\\xiaoJ\\Documents\\Roundtable",
+      "port": 7777
+    }
+  ]
+}
