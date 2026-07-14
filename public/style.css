@@ -26,6 +26,9 @@ button { cursor:pointer; } button:hover { border-color:var(--accent); }
 .round pre, #judgecard pre { white-space:pre-wrap; word-break:break-word; background:color-mix(in srgb, var(--fg) 4%, var(--bg)); padding:8px; border-radius:8px; margin:0; }
 .mid #summary { white-space:pre-wrap; font-size:13px; }
 #setupbar, #statebar { padding:6px 8px; border-radius:6px; margin-bottom:8px; background:color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+#statebar { position:sticky; top:0; z-index:6; backdrop-filter:blur(4px); background:color-mix(in srgb, var(--accent) 16%, var(--bg)); }
+.roundnav { display:inline-flex; gap:4px; margin-left:8px; }
+.roundnav button { padding:0 7px; font-size:12px; line-height:18px; border-radius:4px; }
 #setupbar.err, #statebar.err { background:color-mix(in srgb, var(--err) 15%, var(--bg)); color:var(--err); }
 #statebar:empty { display:none; }
 #note { width:100%; min-height:60px; margin:8px 0; resize:vertical; }

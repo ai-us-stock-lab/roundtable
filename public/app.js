@@ -67,6 +67,13 @@ function ensureRoundDiv(side, label) {
     d.appendChild(pre);
     feed(side).appendChild(d);
     roundDivs[key] = pre;
+    // 栏头加该轮的快速跳转按钮（栏头是 sticky 的，按钮始终可见）
+    const nav = $(side === 'A' ? '#colA .roundnav' : '#colB .roundnav');
+    const btn = document.createElement('button');
+    btn.textContent = label.replace(/[第轮\s]/g, ''); // 「第 2 轮」→「2」
+    btn.title = '跳转到' + label;
+    btn.onclick = () => d.scrollIntoView({ block: 'start' }); // 不用 smooth：部分环境平滑滚动不执行
+    nav.appendChild(btn);
   }
   return roundDivs[key];
 }
@@ -137,6 +144,7 @@ function showArchiveView(topic, sessionMd) {
 // ---- 重置会话相关 UI 状态（新会话 / 重连前调用）----
 function resetSessionUI() {
   stopBadgeTimer('A'); stopBadgeTimer('B');
+  $('#colA .roundnav').innerHTML = ''; $('#colB .roundnav').innerHTML = '';
   $('#colA .feed').innerHTML = ''; $('#colB .feed').innerHTML = '';
   $('#colA .badge').textContent = ''; $('#colB .badge').textContent = '';
   $('#colA .name').textContent = ''; $('#colB .name').textContent = '';
