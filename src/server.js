@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
 import { loadTemplates } from './templates.js';
@@ -102,13 +102,20 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         sessions.set(id, entry);
         return json(res, 200, { id });
       }
-      if (url.pathname.startsWith('/api/archive/') && req.method === 'GET') {
+      if (url.pathname.startsWith('/api/archive/') && (req.method === 'GET' || req.method === 'DELETE')) {
         let dirname;
         try { dirname = decodeURIComponent(url.pathname.slice('/api/archive/'.length)); } catch { return json(res, 404, { error: 'not found' }); }
         let entries;
         try { entries = await readdir(sessionsDir); } catch { entries = []; }
         if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
         const dir = path.join(sessionsDir, dirname);
+        if (req.method === 'DELETE') {
+          // 不允许删除仍挂在活动会话名下的目录（先删活动会话）
+          const activeDirs = new Set([...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)).filter(Boolean));
+          if (activeDirs.has(dirname)) return json(res, 409, { error: '该会话仍在进行中，请先删除活动会话' });
+          await rm(dir, { recursive: true, force: true });
+          return json(res, 200, { ok: true });
+        }
         let sessionMd;
         try { sessionMd = await readFile(path.join(dir, 'session.md'), 'utf8'); }
         catch {
@@ -124,6 +131,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const entry = sessions.get(m[1]);
         if (!entry) return json(res, 404, { error: '会话不存在' });
         const c = entry.committee, action = m[3];
+        if (!action && req.method === 'DELETE') {
+          // 删除活动会话：中止子进程、断开 SSE、移出内存，并连同磁盘目录一起删除
+          try { c.stopRound(); } catch { /* 未在运行中也无妨 */ }
+          for (const client of entry.clients) { try { client.end(); } catch { /* 已断开 */ } }
+          sessions.delete(m[1]);
+          if (c.dir) await rm(c.dir, { recursive: true, force: true });
+          return json(res, 200, { ok: true });
+        }
         if (!action && req.method === 'GET')
           return json(res, 200, {
             state: c.state, round: c.round, topic: c.topic, dir: c.dir,

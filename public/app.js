@@ -124,8 +124,23 @@ async function refreshSessionList() {
     const meta = document.createElement('div');
     meta.className = 'session-meta';
     meta.textContent = s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮');
+    const del = document.createElement('button');
+    del.className = 'session-del';
+    del.textContent = '✕';
+    del.title = '删除该会话记录';
+    del.onclick = async e => {
+      e.stopPropagation(); // 不触发条目本身的打开动作
+      if (!confirm('删除「' + (s.topic || '（无议题）') + '」？记录将从磁盘移除，不可恢复。')) return;
+      const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id) : '/api/sessions/' + s.id;
+      let r;
+      try { r = await (await fetch(url, { method: 'DELETE' })).json(); } catch (err) { return setStatebar('删除失败: ' + err.message, true); }
+      if (r.error) return setStatebar(r.error, true);
+      if (!s.archived && s.id === sid) { closeEvents(); sid = null; resetSessionUI(); showSetup(); } // 删的是当前会话则回到建会话页
+      await refreshSessionList();
+    };
     item.appendChild(title);
     item.appendChild(meta);
+    item.appendChild(del);
     item.onclick = () => s.archived ? openArchive(s.id) : attach(s.id);
     el.appendChild(item);
   }
