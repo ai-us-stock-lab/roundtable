@@ -126,6 +126,60 @@ const isDebaterCall = label => /^r\d+(retry)?$/.test(label ?? ''); // r1、r2ret
 // 从 label（r1 / r2retry 等）解析轮次标题；retry 与初次调用同轮号 → 落入同一个 round div（追加而非新建）
 const roundTitleOf = label => { const m = /^r(\d+)/.exec(label ?? ''); return m ? `第 ${m[1]} 轮` : (label ?? ''); };
 
+// ---- 会话内群聊 ----
+const isChatCall = label => /^chat\d+$/.test(label ?? '');
+let typingEls = {}; // agentId -> "正在输入…" 提示元素
+
+function showTyping(agentId) {
+  hideTyping(agentId);
+  const name = cfg.agents[agentId]?.name ?? agentId;
+  const div = document.createElement('div');
+  div.className = 'chat-msg chat-agent chat-typing';
+  div.textContent = name + ' 正在输入…';
+  $('#chatLog').appendChild(div);
+  typingEls[agentId] = div;
+  $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
+}
+function hideTyping(agentId) {
+  const el = typingEls[agentId];
+  if (el) { el.remove(); delete typingEls[agentId]; }
+}
+
+// from: 'user' | agentId；全部经 textContent 渲染，杜绝模型/用户输出触发 XSS
+function appendChatMessage(from, name, text) {
+  hideTyping(from);
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + (from === 'user' ? 'chat-user' : 'chat-agent');
+  const nameEl = document.createElement('div');
+  nameEl.className = 'chat-name';
+  nameEl.textContent = name;
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'chat-body';
+  bodyEl.textContent = text;
+  div.appendChild(nameEl);
+  div.appendChild(bodyEl);
+  $('#chatLog').appendChild(div);
+  $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
+  $('#chatPanel').open = true; // 有新消息时自动展开
+}
+
+// 重建收件人多选：该会话全部参会 agent（辩手+仲裁+书记去重），默认勾选第一个辩手
+function renderChatRecipients(roles, agentNames) {
+  const ids = [...new Set([roles.debaters[0], roles.debaters[1], roles.judge, roles.summarizer])];
+  const el = $('#chatRecipients');
+  el.innerHTML = '';
+  for (const id of ids) {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = id;
+    cb.checked = id === roles.debaters[0];
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + (agentNames[id] ?? id)));
+    el.appendChild(label);
+  }
+}
+
 function onEvent(ev) {
   if (ev.type === 'chunk') {
     const side = sideOf[ev.agentId];
@@ -159,8 +213,11 @@ function onEvent(ev) {
       if (ev.data === 'running') setStatebar('仲裁（' + name + '）正在裁决——比较证据强弱与证伪点质量…');
     } else if (/summary$/.test(ev.label ?? '')) {
       if (ev.data === 'running') setStatebar('书记（' + name + '）正在整理本轮摘要与分歧分类表…');
+    } else if (isChatCall(ev.label)) {
+      if (ev.data === 'running') showTyping(ev.agentId); else hideTyping(ev.agentId); // 消息本身由 chat-message 事件追加，失败则由 error 事件提示
     }
   }
+  if (ev.type === 'chat-message') appendChatMessage(ev.from, ev.name, ev.data);
   if (ev.type === 'summary') { $('#summary').textContent = ev.data; $('#resummarize').hidden = !/摘要失败/.test(ev.data); }
   if (ev.type === 'round-done') { setStatebar('第 ' + ev.round + ' 轮结束——可插话后继续'); refreshSessionList(); }
   if (ev.type === 'state') setStatebar('状态: ' + ev.data);
@@ -210,6 +267,11 @@ function resetSessionUI() {
   const setupbar = $('#setupbar'); setupbar.textContent = ''; setupbar.hidden = true; setupbar.classList.remove('err');
   roundDivs = {};
   sideOf = {};
+  $('#chatLog').innerHTML = '';
+  $('#chatRecipients').innerHTML = '';
+  $('#chatInput').value = '';
+  $('#chatPanel').open = false;
+  typingEls = {};
 }
 
 function closeEvents() { if (es) { es.close(); es = null; } }
@@ -275,6 +337,7 @@ async function attach(id) {
   sideOf = { [detail.roles.debaters[0]]: 'A', [detail.roles.debaters[1]]: 'B' };
   $('#colA .name').textContent = detail.agentNames?.[detail.roles.debaters[0]] ?? detail.roles.debaters[0];
   $('#colB .name').textContent = detail.agentNames?.[detail.roles.debaters[1]] ?? detail.roles.debaters[1];
+  renderChatRecipients(detail.roles, detail.agentNames ?? {});
   showArena();
   connectEvents(); // 回放缓冲事件重建全部内容
   await refreshSessionList();
@@ -341,6 +404,8 @@ $('#start').onclick = async () => {
   sideOf = { [roles.debaters[0]]: 'A', [roles.debaters[1]]: 'B' };
   $('#colA .name').textContent = cfg.agents[roles.debaters[0]].name;
   $('#colB .name').textContent = cfg.agents[roles.debaters[1]].name;
+  const agentNames = Object.fromEntries(Object.entries(cfg.agents).map(([id, a]) => [id, a.name]));
+  renderChatRecipients(roles, agentNames);
   $('#arena').hidden = false;
   connectEvents();
   await refreshSessionList();
@@ -352,6 +417,14 @@ $('#stop').onclick = () => api('stop');
 $('#dojudge').onclick = () => api('judge');
 $('#partial').onclick = () => api('save-partial');
 $('#resummarize').onclick = () => { $('#resummarize').hidden = true; api('resummarize'); };
+$('#chatSend').onclick = async () => {
+  const text = $('#chatInput').value.trim();
+  if (!text) return;
+  const to = [...$('#chatRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
+  if (!to.length) return setStatebar('请至少勾选一位收件人', true);
+  $('#chatInput').value = '';
+  await api('chat', { text, to });
+};
 $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre').textContent);
 for (const [sel, side] of [['#colA', 'A'], ['#colB', 'B']]) {
   $(sel + ' .retry').onclick = () => api('retry', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });

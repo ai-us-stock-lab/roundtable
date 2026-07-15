@@ -35,6 +35,15 @@
         <div id="summary"></div>
     <button id="resummarize" hidden>重新生成本轮摘要</button>
         <div id="judgecard" hidden><h3>裁决卡</h3><pre></pre><button id="copycard">复制</button></div>
+        <details id="chatPanel">
+          <summary>群聊</summary>
+          <div id="chatLog"></div>
+          <div id="chatBar">
+            <div id="chatRecipients"></div>
+            <textarea id="chatInput" placeholder="和参会 AI 自由讨论……"></textarea>
+            <button id="chatSend">发送</button>
+          </div>
+        </details>
         <textarea id="note" placeholder="主持人插话（进入下一轮双方简报）"></textarea>
         <div id="controls">
           <button id="next">下一轮</button><button id="auto">自动跑完</button><label class="autoN">至多 <input id="maxR" type="number" min="1" max="10" value="4"> 轮</label>

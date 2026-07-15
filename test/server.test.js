@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -305,6 +305,115 @@ test('resume：metadata 中的模板名在当前 templates 中找不到时返回
   }), 'utf8');
   const r = await fetch(BASE + '/api/archive/' + encodeURIComponent(dirname) + '/resume', { method: 'POST' });
   assert.equal(r.status, 400);
+});
+
+// ---- 会话内群聊 ----
+
+test('POST /api/sessions/:id/chat：SSE 缓冲含用户消息与 agent 回复的 chat-message', async () => {
+  const create = await (await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '群聊议题', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 3 }),
+  })).json();
+  await fetch(`${BASE}/api/sessions/${create.id}/round`, { method: 'POST' });
+  let state = '';
+  for (let i = 0; i < 50 && state !== 'paused'; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    state = (await (await fetch(`${BASE}/api/sessions/${create.id}`)).json()).state;
+  }
+  assert.equal(state, 'paused');
+
+  const detail = await (await fetch(`${BASE}/api/sessions/${create.id}`)).json();
+  const chatRes = await fetch(`${BASE}/api/sessions/${create.id}/chat`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '追问一下你的立场', to: ['mockA'] }),
+  });
+  assert.equal((await chatRes.json()).ok, true);
+  // 先轮询磁盘确认 chat() 已跑完落盘（避免在事件流仍开着、但没有更多数据时永久阻塞在 read()）
+  const chatFile = path.join(detail.dir, 'chat.jsonl');
+  for (let i = 0; i < 50 && !existsSync(chatFile); i++) await new Promise(r => setTimeout(r, 100));
+  assert.ok(existsSync(chatFile), 'chat.jsonl 应已落盘');
+  // 此时两条 chat-message 均已在缓冲中，单次连接、按条件提前退出读取（不做超出所需的阻塞 read）
+  const res = await fetch(`${BASE}/api/sessions/${create.id}/events`);
+  const reader = res.body.getReader();
+  let text = '';
+  for (let i = 0; i < 20 && !((text.match(/"type":"chat-message"/g) ?? []).length >= 2); i++) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+  }
+  reader.cancel();
+  assert.match(text, /"type":"chat-message"[^\n]*"from":"user"/);
+  assert.match(text, /追问一下你的立场/);
+  assert.match(text, /"type":"chat-message"[^\n]*"from":"mockA"/);
+});
+
+test('POST chat：text 为空或 to 为空返回 400，未知 agent 返回 400', async () => {
+  const create = await (await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '群聊校验', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 3 }),
+  })).json();
+  await fetch(`${BASE}/api/sessions/${create.id}/round`, { method: 'POST' });
+  let state = '';
+  for (let i = 0; i < 50 && state !== 'paused'; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    state = (await (await fetch(`${BASE}/api/sessions/${create.id}`)).json()).state;
+  }
+  const r1 = await fetch(`${BASE}/api/sessions/${create.id}/chat`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '  ', to: ['mockA'] }),
+  });
+  assert.equal(r1.status, 400);
+  const r2 = await fetch(`${BASE}/api/sessions/${create.id}/chat`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '你好', to: [] }),
+  });
+  assert.equal(r2.status, 400);
+  const r3 = await fetch(`${BASE}/api/sessions/${create.id}/chat`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '你好', to: ['nope'] }),
+  });
+  assert.equal(r3.status, 400);
+});
+
+test('resume 后 chat.jsonl 重放为 chat-message 事件', async () => {
+  const resumeSessionsDir = mkdtempSync(path.join(tmpdir(), 'rt-resume-chat-'));
+  const s1 = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
+  const base1 = `http://127.0.0.1:${s1.port}`;
+  const create = await (await fetch(base1 + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '恢复群聊议题', materials: '', template: 'general', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' }, mode: 'manual', maxRounds: 3 }),
+  })).json();
+  await fetch(`${base1}/api/sessions/${create.id}/round`, { method: 'POST' });
+  let detail = {};
+  for (let i = 0; i < 50 && detail.state !== 'paused'; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    detail = await (await fetch(`${base1}/api/sessions/${create.id}`)).json();
+  }
+  await fetch(`${base1}/api/sessions/${create.id}/chat`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '恢复前问一句', to: ['mockA'] }),
+  });
+  // 等 chat.jsonl 落盘（轮询磁盘）
+  const dirname = path.basename(detail.dir);
+  const chatFile = path.join(resumeSessionsDir, dirname, 'chat.jsonl');
+  for (let i = 0; i < 50 && !existsSync(chatFile); i++) await new Promise(r => setTimeout(r, 100));
+  await s1.close();
+
+  const s2 = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
+  const base2 = `http://127.0.0.1:${s2.port}`;
+  try {
+    const resumed = await (await fetch(`${base2}/api/archive/${encodeURIComponent(dirname)}/resume`, { method: 'POST' })).json();
+    assert.ok(resumed.id);
+    const sse = await fetch(`${base2}/api/sessions/${resumed.id}/events`);
+    const reader = sse.body.getReader();
+    let text = '';
+    for (let i = 0; i < 20 && !text.includes('恢复前问一句'); i++) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += new TextDecoder().decode(value);
+    }
+    reader.cancel();
+    assert.match(text, /"type":"chat-message"/);
+    assert.match(text, /恢复前问一句/);
+  } finally {
+    await s2.close();
+  }
 });
 
 test('resume：目标目录已是活动会话时返回 409', async () => {

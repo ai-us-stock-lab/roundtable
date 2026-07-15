@@ -18,6 +18,8 @@ export class Committee {
     this.abort = null;
     this.errors = [];
     this.autoStopRequested = false;
+    this.chatLog = [];
+    this.chatSeq = 0;
   }
 
   // 从磁盘状态装配一个可继续辩论的 Committee：不新建目录（复用给定 dir），
@@ -135,6 +137,52 @@ export class Committee {
     await store.saveSummary(this.dir, this.round, entry.summary);
     await store.saveDisagreements(this.dir, entry.summary);
     this.emit({ type: 'summary', round: this.round, data: entry.summary });
+  }
+
+  // 会话内群聊：会后/轮间与参会 AI 自由讨论，AI 回答延续其会上立场（若为辩手，引用其最新一轮发言）
+  async chat(text, agentIds) {
+    if (['running', 'judging'].includes(this.state)) throw new Error('辩论进行中，稍后再聊');
+    if (this.state === 'created') throw new Error('尚无会议内容可聊，请先开始第 1 轮');
+    const userMsg = { from: 'user', name: '主持人', text, at: new Date().toISOString() };
+    this.chatLog.push(userMsg);
+    this.emit({ type: 'chat-message', from: 'user', name: '主持人', data: text });
+    for (const agentId of agentIds) {
+      this.chatSeq += 1;
+      const label = 'chat' + this.chatSeq;
+      const prompt = this.buildChatPrompt(agentId, text);
+      const r = await this.call(agentId, label, prompt);
+      if (r.ok) {
+        const name = this.agentName(agentId);
+        this.chatLog.push({ from: agentId, name, text: r.text, at: new Date().toISOString() });
+        this.emit({ type: 'chat-message', from: agentId, name, data: r.text });
+      }
+      // 失败时 call() 已发出 error 事件，此处无需重复处理
+    }
+    await this.saveChatLog();
+  }
+
+  buildChatPrompt(agentId, text) {
+    const name = this.agentName(agentId);
+    const summary = this.latestSummary().slice(0, 3000);
+    const last = this.history.at(-1);
+    const isDebater = this.roles.debaters.includes(agentId);
+    const lastOutput = last?.outputs?.[agentId];
+    const stance = isDebater && lastOutput?.ok ? lastOutput.text.slice(0, 2000) : '';
+    const recent = this.chatLog.slice(-10).map(m => `${m.name}：${m.text}`).join('\n');
+    return [
+      `你是决策委员会会议的参会者「${name}」，现在是会后/轮间的自由讨论环节。`,
+      `# 议题：${this.topic}`,
+      `# 会议摘要：${summary}`,
+      stance ? `# 你在辩论中的最新立场（保持一致性）：${stance}` : '',
+      `# 最近群聊记录：\n${recent}`,
+      `# 主持人刚刚说：${text}`,
+      '请以对话方式简明回应（几句话到一小段，无需固定结构），延续你的立场与视角，可引用会议内容；被问到超出会议范围的事实请照实说不知道。',
+    ].filter(Boolean).join('\n\n');
+  }
+
+  async saveChatLog() {
+    const lines = this.chatLog.map(m => redact(JSON.stringify(m))).join('\n') + '\n';
+    await writeFile(path.join(this.dir, 'chat.jsonl'), lines, 'utf8');
   }
 
   async retrySide(agentId) {

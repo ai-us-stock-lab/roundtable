@@ -230,6 +230,79 @@ test('resummarize 用新 AbortController 重新生成本轮摘要', async () => 
   assert.doesNotMatch(c.history.at(-1).summary, /摘要失败/);
 });
 
+// ---- 会话内群聊 ----
+
+test('chat：用户消息与回复入 chatLog，emit chat-message 事件，落盘 chat.jsonl', async () => {
+  const { c, events } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  await c.chat('请再解释一下你的证伪点', ['a']);
+  assert.equal(c.chatLog.length, 2);
+  assert.equal(c.chatLog[0].from, 'user');
+  assert.equal(c.chatLog[0].text, '请再解释一下你的证伪点');
+  assert.equal(c.chatLog[1].from, 'a');
+  assert.equal(c.chatLog[1].name, 'AgentA');
+  assert.ok(c.chatLog[1].text.length > 0);
+
+  const userEv = events.find(e => e.type === 'chat-message' && e.from === 'user');
+  assert.ok(userEv, '应 emit 用户消息事件');
+  assert.equal(userEv.data, '请再解释一下你的证伪点');
+  const agentEv = events.find(e => e.type === 'chat-message' && e.from === 'a');
+  assert.ok(agentEv, '应 emit agent 回复事件');
+  assert.equal(agentEv.name, 'AgentA');
+
+  const jsonl = readFileSync(path.join(c.dir, 'chat.jsonl'), 'utf8').trim().split('\n');
+  assert.equal(jsonl.length, 2);
+  const parsed = jsonl.map(l => JSON.parse(l));
+  assert.equal(parsed[0].from, 'user');
+  assert.equal(parsed[1].from, 'a');
+});
+
+test('chat：向多个 agent 群发时串行调用，各自留档', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  await c.chat('两位怎么看？', ['a', 'b']);
+  assert.equal(c.chatLog.length, 3); // 用户 + a + b
+  assert.deepEqual(c.chatLog.map(m => m.from), ['user', 'a', 'b']);
+  const prompts = readdirSync(path.join(c.dir, 'prompts'));
+  assert.ok(prompts.includes('chat1-a.md'));
+  assert.ok(prompts.includes('chat2-b.md'));
+});
+
+test('chat：辩手回复延续其最新一轮立场（prompt 中含其上一轮发言原文）', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  const lastOutputA = c.history[0].outputs.a.text;
+  await c.chat('坚持你的看法吗？', ['a']);
+  const prompt = readFileSync(path.join(c.dir, 'prompts', 'chat1-a.md'), 'utf8');
+  assert.match(prompt, /你在辩论中的最新立场/);
+  assert.ok(prompt.includes(lastOutputA.slice(0, 50)), 'prompt 应引用该辩手上一轮发言原文');
+});
+
+test('chat：running 状态下调用抛错「辩论进行中，稍后再聊」', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  c.state = 'running';
+  await assert.rejects(() => c.chat('现在方便聊吗？', ['a']), /辩论进行中，稍后再聊/);
+});
+
+test('chat：judging 状态下调用同样抛错', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await c.runNextRound();
+  c.state = 'judging';
+  await assert.rejects(() => c.chat('现在方便聊吗？', ['a']), /辩论进行中，稍后再聊/);
+});
+
+test('chat：created 状态（尚无内容）下调用抛错', async () => {
+  const { c } = makeCommittee();
+  await c.init();
+  await assert.rejects(() => c.chat('还没开始呢', ['a']), /尚无会议内容可聊/);
+});
+
 test('书记输出缺「分歧分类表」结构时发出格式警告', async () => {
   const { c, events } = makeCommittee();
   // 让书记（agent s）输出固定文本（不含分歧分类表结构）

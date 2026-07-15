@@ -217,6 +217,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           }
           const judgeCard = await readFile(path.join(dir, 'judge-card.md'), 'utf8').catch(() => null);
           if (judgeCard !== null) entry.events.push({ type: 'judge-card', data: judgeCard });
+          // 群聊记录（若存在）：重建 chatLog 并合成事件回放
+          const chatRaw = await readFile(path.join(dir, 'chat.jsonl'), 'utf8').catch(() => null);
+          if (chatRaw !== null) {
+            const chatLog = chatRaw.split('\n').filter(Boolean).map(l => JSON.parse(l));
+            committee.chatLog = chatLog;
+            committee.chatSeq = chatLog.length;
+            for (const m of chatLog) entry.events.push({ type: 'chat-message', from: m.from, name: m.name, data: m.text });
+          }
           sessions.set(id, entry);
           return json(res, 200, { id });
         }
@@ -289,6 +297,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           case 'stop': c.stopRound(); return json(res, 200, { ok: true });
           case 'save-partial': return fire(() => c.savePartial());
           case 'resummarize': return fire(() => c.resummarize());
+          case 'chat': {
+            const text = String(body.text ?? '').trim();
+            const to = Array.isArray(body.to) ? body.to : [];
+            if (!text) return json(res, 400, { error: '内容不能为空' });
+            if (!to.length) return json(res, 400, { error: '请至少选择一位收件人' });
+            for (const agentId of to) if (!c.agents[agentId]) return json(res, 400, { error: '未知 agent: ' + agentId });
+            return fire(() => c.chat(text, to));
+          }
           default: return json(res, 404, { error: '未知操作: ' + action });
         }
       }
