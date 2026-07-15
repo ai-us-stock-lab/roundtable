@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import path from 'node:path';
 
 // 只把白名单内的变量传给子进程——API key 等敏感变量默认全部隔离
@@ -68,6 +68,8 @@ const AUTH_RE = /log ?in|auth|401|unauthorized|credential|expired/i;
 export async function runAgent(cfg, prompt, opts = {}) {
   const started = Date.now();
   let argv = [...cfg.command];
+  // argv 中 ~/ 前缀展开为用户主目录——让 agents.json 里的脚本路径跨机器可移植
+  argv = argv.map(a => (typeof a === 'string' && /^~[/\\]/.test(a) ? path.join(homedir(), a.slice(1)) : a));
   let tmpDir = null;
   // {NONCE}：每次调用生成唯一串。用于要求"每次调用都是全新会话"的 CLI
   //（如 openclaw 的 --session-key roundtable-{NONCE}），保证 clean room 无记忆。
@@ -108,6 +110,11 @@ export async function runAgent(cfg, prompt, opts = {}) {
       // 需要在 spawn 时刻动态包一层 cmd /c；argv 仍是数组、shell 仍为 false，
       // prompt 仍走 stdin——不引入 shell 注入面。
       const isWinShimScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(argv[0] ?? '');
+      // cmd.exe 会把参数里的换行当命令分隔符：arg 模式的 prompt（含上轮模型输出）经
+      // cmd /c 传递既被截断又构成注入面——直接拒绝，提示改用真实可执行文件路径
+      if (isWinShimScript && argv.some(a => typeof a === 'string' && /[\r\n]/.test(a))) {
+        return finish({ ok: false, error: 'unsafe-cmd-args: .cmd/.bat 包装无法安全传递含换行的参数——请把该 CLI 的 command[0] 配为 .exe 或 node 脚本的真实路径', text: '', exitCode: null });
+      }
       const [file, args] = isWinShimScript
         ? [process.env.COMSPEC ?? 'cmd.exe', ['/c', ...argv]]
         : [argv[0], argv.slice(1)];

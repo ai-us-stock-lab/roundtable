@@ -50,3 +50,11 @@ test('win32 下 PATH 查找跳过无扩展名裸文件、命中 .cmd', { skip: p
     assert.match(p, /mytool\.cmd$/i);
   } finally { process.env.PATH = oldPath; }
 });
+
+test('expandHome: ~/ 前缀展开为主目录', async () => {
+  const { expandHome } = await import('../src/resolve.js');
+  const { homedir } = await import('node:os');
+  const path = (await import('node:path')).default;
+  assert.equal(expandHome('~/x/y.exe'), path.join(homedir(), 'x/y.exe'));
+  assert.equal(expandHome('plain'), 'plain');
+});

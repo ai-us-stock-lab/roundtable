@@ -2,7 +2,7 @@ import { existsSync, statSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-const expandHome = p => (p.startsWith('~') ? path.join(homedir(), p.slice(1)) : p);
+export const expandHome = p => (p.startsWith('~') ? path.join(homedir(), p.slice(1)) : p);
 
 // Windows 下只按 PATHEXT 逐一探测（不含裸文件名——npm 全局安装同时会在同目录放一个无扩展名的
 // POSIX sh 包装脚本，供 git-bash/WSL 用；Windows CreateProcess 无法直接执行它，误配会导致 spawn 失败）；
@@ -39,7 +39,7 @@ function globNewest(pattern) {
 
 // 按优先级解析 CLI 可执行文件路径：①专属环境变量 ②绝对路径直用 ③PATH+PATHEXT ④版本哈希目录 glob 取最新 mtime ⑤抛带安装指引的错误
 export function resolveCliPath(cfg) {
-  const name = cfg.command[0];
+  const name = expandHome(cfg.command[0]); // command[0] 支持 ~/ 前缀，跨机器可移植
   if (cfg.commandEnvVar) {
     const p = process.env[cfg.commandEnvVar];
     if (p && existsSync(p)) return p;

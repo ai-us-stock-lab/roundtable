@@ -166,3 +166,20 @@ test('json 输出：支持 gateway 路径的嵌套 result.payloads 结构', asyn
   const r = await runAgent(MOCK({ output: 'json' }), '#echo\n{"runId":"x","status":"ok","result":{"payloads":[{"text":"网关路径回答"}],"meta":{}}}');
   assert.equal(r.text, '网关路径回答');
 });
+
+test('argv 中 ~/ 前缀展开为用户主目录（配置可移植）', async () => {
+  const { homedir } = await import('node:os');
+  const r = await runAgent(MOCK({ command: [process.execPath, '-p', 'process.argv[1]', '~/some/tool.mjs'], input: 'arg' }), 'x');
+  assert.equal(r.ok, true);
+  assert.equal(path.normalize(r.text), path.normalize(path.join(homedir(), 'some', 'tool.mjs')));
+});
+
+test('win32 .cmd 包装 + 参数含换行 → 拒绝 spawn（cmd.exe 会截断并构成注入面）', async t => {
+  if (process.platform !== 'win32') return t.skip('win32 专属护栏');
+  const dir = mkdtempSync(path.join(tmpdir(), 'rt-shim-'));
+  const shim = path.join(dir, 'echo.cmd');
+  writeFileSync(shim, '@echo off\r\necho %1\r\n');
+  const r = await runAgent(MOCK({ command: [shim, '{PROMPT}'], input: 'arg' }), '第一行\n第二行');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /unsafe-cmd-args/);
+});

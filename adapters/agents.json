@@ -82,12 +82,13 @@
   "hermes": {
     "name": "Hermes",
     "command": [
-      "C:/Users/xiaoJ/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe",
+      "~/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe",
       "chat",
       "-q",
       "{PROMPT}",
       "-Q"
     ],
+    "commandEnvVar": "HERMES_CLI_PATH",
     "input": "arg",
     "output": "text",
     "dropLines": [
@@ -120,7 +121,7 @@
     "name": "OpenClaw",
     "command": [
       "node",
-      "C:/Users/xiaoJ/AppData/Roaming/npm/node_modules/openclaw/openclaw.mjs",
+      "~/AppData/Roaming/npm/node_modules/openclaw/openclaw.mjs",
       "agent",
       "--agent",
       "main",

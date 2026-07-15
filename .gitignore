@@ -3,3 +3,4 @@ sessions/*
 !sessions/.gitkeep
 workdir/*
 !workdir/.gitkeep
+.claude/

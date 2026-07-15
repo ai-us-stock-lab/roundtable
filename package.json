@@ -5,5 +5,14 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test \"test/*.test.js\""
+  },
+  "description": "Multi-agent decision committee: structured debates between AI CLIs (Claude Code / Codex / any CLI) with cross-examination, disagreement classification and independent judging",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ai-us-stock-lab/roundtable"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
