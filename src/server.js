@@ -120,7 +120,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const workspace = String(body.workspace ?? '').trim();
         if (workspace && !existsSync(workspace)) return json(res, 400, { error: '项目目录不存在: ' + workspace });
         let materials = body.materials ?? '';
-        if (workspace) materials += '\n\n---\n参会说明：你的工作目录就是该项目的根目录（只读）。发言前请先自行查阅关键文件核实简报中的说法；引用事实时注明文件路径。';
+        if (workspace) materials += '\n\n---\n参会说明：你的工作目录就是该项目的根目录（只读）。发言前请先自行查阅关键文件核实简报中的说法；引用事实时用「相对路径:行号」纯文本格式（如 src/server.js:123），不要写绝对路径，不要用 markdown 链接语法——你的发言按纯文本展示，链接语法只会变成刷屏的长串。';
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         const now = new Date().toISOString();
         const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };

@@ -12,7 +12,7 @@
     ],
     "input": "stdin",
     "output": "stream-json",
-    "timeoutMs": 300000,
+    "timeoutMs": 600000,
     "envWhitelist": [
       "PATH",
       "USERPROFILE",
