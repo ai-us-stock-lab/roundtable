@@ -28,7 +28,7 @@ export function renderMessage(m) {
   return `[${who}${to}] ${m.text}`;
 }
 
-export function buildWorkbenchPrompt({ selfName, participantNames, messages, text, limit }) {
+function buildPromptWithTail({ selfName, participantNames, messages, tail, limit }) {
   const preamble = [
     `你是 ${selfName}，正在一个多模型协作工作台中与用户和其他 AI 模型共同讨论。`,
     `参与者：用户、${participantNames.join('、')}（其中「${selfName}」是你本人）。`,
@@ -38,7 +38,6 @@ export function buildWorkbenchPrompt({ selfName, participantNames, messages, tex
     '- 超出对话内信息的事实，照实说不知道；你的回复会以纯文本展示，不要用 markdown 链接语法',
     '',
   ].join('\n');
-  const tail = `\n=== 用户现在的消息（请你回复）===\n${text}\n\n请直接给出回复正文。`;
   const rendered = messages.map(m => ({ ...m, rendered: renderMessage(m) }));
   const headerLen = 40; // 「=== 对话记录 ... ===」行的预算
   const fit = fitHistory(rendered, { fixedLen: preamble.length + tail.length + headerLen, limit });
@@ -49,6 +48,18 @@ export function buildWorkbenchPrompt({ selfName, participantNames, messages, tex
     : `=== 对话记录 ===`;
   const body = shownMsgs.length ? `${header}\n${shownMsgs.map(m => m.rendered).join('\n')}\n` : '';
   return { ...fit, prompt: preamble + body + tail };
+}
+
+// 互聊轮到某模型发言时的指令：鼓励点名反驳/追问（防多模型假共识），收敛时主动终止（防烧额度）
+export const RELAY_CONVERGED = '【无新增】';
+export function buildRelayPrompt({ selfName, participantNames, messages, limit }) {
+  const tail = `\n=== 现在轮到你发言 ===\n请直接回应上面的讨论，特别是其他参与者最近的发言：同意就在其基础上深化，不同意就点名反驳并给出理由，也可以向某位参与者提出具体问题。不要重复或笼统总结已有内容。若你认为讨论已经收敛、没有可新增的实质内容，只回复：${RELAY_CONVERGED}`;
+  return buildPromptWithTail({ selfName, participantNames, messages, tail, limit });
+}
+
+export function buildWorkbenchPrompt({ selfName, participantNames, messages, text, limit }) {
+  const tail = `\n=== 用户现在的消息（请你回复）===\n${text}\n\n请直接给出回复正文。`;
+  return buildPromptWithTail({ selfName, participantNames, messages, tail, limit });
 }
 
 // arg 模式（prompt 走命令行参数）受 Windows ~32K 命令行总长限制；runner 在 30000 处硬护栏，
@@ -146,6 +157,67 @@ export class Workbench {
       await this.saveMeta();
     }
   }
+
+  // 互聊：模型之间按顺序接力发言 n 轮，每人都看到此前全部讨论（含上一位刚说的话）。
+  // 串行 + 可随时停 + 收敛自动终止——三重成本刹车。
+  async relay(rounds, order = []) {
+    if (this.state === 'busy') throw new Error('上一条消息还在处理中');
+    const circle = (order.length ? order : this.participants).filter(id => this.participants.includes(id));
+    if (new Set(circle).size < 2) throw new Error('互聊至少需要两个模型');
+    const n = Math.min(Math.max(Number(rounds) || 1, 1), 8);
+    this.state = 'busy';
+    this.stopped = false;
+    this.aborter = new AbortController();
+    this.emit({ type: 'state', data: 'busy' });
+    this.emit({ type: 'sys', data: `互聊开始：${circle.map(id => this.nameOf(id)).join(' → ')}，至多 ${n} 轮` });
+    let ended = '完成';
+    try {
+      outer: for (let r = 0; r < n; r++) {
+        for (const id of circle) {
+          if (this.stopped) { ended = '已停止'; break outer; }
+          this.emit({ type: 'agent-status', agentId: id, label: 'wb', data: 'running' });
+          const built = buildRelayPrompt({
+            selfName: this.nameOf(id),
+            participantNames: this.participants.map(p => this.nameOf(p)),
+            messages: this.messages, limit: promptLimitFor(this.agents[id]),
+          });
+          if (built.blocked) {
+            this.emit({ type: 'agent-status', agentId: id, label: 'wb', data: 'failed:' + built.errorCode });
+            this.emit({ type: 'error', agentId: id, data: '上下文超出该模型长度上限，互聊终止' });
+            ended = '因长度上限终止';
+            break outer;
+          }
+          const seq = this.messages.length;
+          await savePrompt(this.dir, `m${seq}`, id, built.prompt);
+          const res = await runAgent(this.agents[id], built.prompt, { signal: this.aborter.signal });
+          await saveRaw(this.dir, `m${seq}`, id, res.raw || res.text || res.error || '');
+          if (!res.ok) {
+            this.emit({ type: 'agent-status', agentId: id, label: 'wb', data: 'failed:' + res.error });
+            if (res.error === 'aborted') { ended = '已停止'; break outer; }
+            this.emit({ type: 'error', agentId: id, data: res.error });
+            continue; // 单模型失败不终止整场互聊
+          }
+          const text = res.text.trim();
+          const ctx = built.shown < built.total ? { shown: built.shown, total: built.total } : undefined;
+          const reply = { seq, from: id, name: this.nameOf(id), text, ts: new Date().toISOString(), ...(ctx ? { ctx } : {}) };
+          this.messages.push(reply);
+          this.lastSpeaker = id;
+          await this.#persist(reply);
+          this.emit({ type: 'chat-message', from: id, name: reply.name, data: text, ...(ctx ? { ctx } : {}) });
+          this.emit({ type: 'agent-status', agentId: id, label: 'wb', data: 'done' });
+          if (text.startsWith(RELAY_CONVERGED)) { ended = `${this.nameOf(id)} 判断讨论已收敛`; break outer; }
+        }
+      }
+    } finally {
+      this.state = 'idle';
+      this.aborter = null;
+      this.emit({ type: 'sys', data: '互聊结束（' + ended + '）' });
+      this.emit({ type: 'state', data: 'idle' });
+      await this.saveMeta();
+    }
+  }
+
+  stop() { this.stopped = true; this.aborter?.abort(); }
 
   // 升格材料：把对话史打包成会议简报草稿（用户在建会表单里可编辑）
   promoteMaterials(maxMessages = 60) {

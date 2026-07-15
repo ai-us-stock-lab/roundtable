@@ -406,6 +406,8 @@ function renderWbParticipantPicker() {
 function setWbBusy(busy) {
   $('#wbSend').disabled = busy;
   $('#wbSend').textContent = busy ? '回复中…' : '发送';
+  $('#wbRelay').disabled = busy;
+  $('#wbStop').hidden = !busy;
 }
 
 function appendWbMessage(from, name, to, text, ctx) {
@@ -455,6 +457,13 @@ function onWbEvent(ev) {
     }
   }
   if (ev.type === 'error') appendWbError('错误' + (ev.agentId ? '（' + (cfg.agents[ev.agentId]?.name ?? ev.agentId) + '）' : '') + ': ' + ev.data);
+  if (ev.type === 'sys') {
+    const div = document.createElement('div');
+    div.className = 'wb-sys';
+    div.textContent = ev.data;
+    $('#wbLog').appendChild(div);
+    $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+  }
 }
 
 async function attachWorkbench(id) {
@@ -527,6 +536,16 @@ $('#wbCreate').onclick = async () => {
   await attachWorkbench(r.id);
 };
 $('#wbSend').onclick = sendWbMessage;
+$('#wbRelay').onclick = async () => {
+  if (!wbId) return;
+  const checked = [...$('#wbRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
+  const order = checked.length >= 2 ? checked : []; // 勾了 ≥2 个就按勾选圈子聊，否则全体参与
+  let r;
+  try { r = await (await fetch(`/api/workbenches/${wbId}/relay`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rounds: Number($('#wbRounds').value) || 2, order }) })).json(); }
+  catch (e) { return appendWbError('网络错误: ' + e.message); }
+  if (r.error) appendWbError(r.error);
+};
+$('#wbStop').onclick = () => { if (wbId) fetch(`/api/workbenches/${wbId}/stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); };
 $('#wbInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendWbMessage(); }
 });

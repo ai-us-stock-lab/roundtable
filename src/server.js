@@ -351,6 +351,13 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           b.message(text, to).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
           return json(res, 200, { ok: true });
         }
+        if (action === 'relay') {
+          if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          const order = (Array.isArray(body.order) ? body.order : []).filter(x => b.participants.includes(x));
+          b.relay(body.rounds, order).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
+          return json(res, 200, { ok: true });
+        }
+        if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }
         if (action === 'promote') {
           // 升格：对话史打包成会议草稿，走既有 #draft 预填链路
           const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);

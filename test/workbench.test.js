@@ -167,3 +167,58 @@ test('server: 工作台创建/发消息/列表/升格/删除/恢复 全链路', 
     srv.close();
   }
 });
+
+// ---- 互聊（模型间接力讨论）----
+test('relay: 按圈子顺序接力 n 轮，后发者能看到前一位刚说的话', async () => {
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-relay-'));
+  const agents = MOCK_AGENTS();
+  const w = new Workbench({ name: 'r', agents, participants: ['m1', 'm2'], baseDir, emit: () => {} });
+  await w.init();
+  await w.relay(2); // 2 轮 × 2 人 = 4 条模型发言（echo mock 不会说【无新增】）
+  assert.equal(w.messages.length, 4);
+  assert.deepEqual(w.messages.map(m => m.from), ['m1', 'm2', 'm1', 'm2']);
+  // m2 的第一条回复（echo=完整 prompt）里能看到 m1 的发言标注 → 互相可见成立
+  assert.match(w.messages[1].text, /\[M1\]/);
+  // 互聊指令带反驳鼓励与收敛出口
+  assert.match(w.messages[0].text, /点名反驳/);
+  assert.match(w.messages[0].text, /【无新增】/);
+});
+
+test('relay: 模型回复【无新增】时提前收敛终止', async () => {
+  process.env.MOCK_FIXED_OUTPUT = '【无新增】';
+  try {
+    const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-conv-'));
+    const events = [];
+    const w = new Workbench({ name: 'c', agents: MOCK_AGENTS(), participants: ['m1', 'm2'], baseDir, emit: e => events.push(e) });
+    await w.init();
+    await w.relay(5);
+    assert.equal(w.messages.length, 1); // 第一个人就收敛，后面全部不再调用
+    assert.ok(events.some(e => e.type === 'sys' && /收敛/.test(e.data)));
+  } finally { delete process.env.MOCK_FIXED_OUTPUT; }
+});
+
+test('relay: 少于两个模型拒绝；busy 时拒绝', async () => {
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-guard-'));
+  const w = new Workbench({ name: 'g', agents: MOCK_AGENTS(), participants: ['m1'], baseDir, emit: () => {} });
+  await w.init();
+  await assert.rejects(() => w.relay(2), /至少需要两个模型/);
+});
+
+test('relay: stop() 中止后续调用并回到 idle', async () => {
+  process.env.MOCK_DELAY_MS = '400';
+  try {
+    const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-stop-'));
+    const agents = MOCK_AGENTS();
+    for (const a of Object.values(agents)) a.envWhitelist.push('MOCK_DELAY_MS');
+    const events = [];
+    const w = new Workbench({ name: 's', agents, participants: ['m1', 'm2'], baseDir, emit: e => events.push(e) });
+    await w.init();
+    const p = w.relay(4);
+    await new Promise(r => setTimeout(r, 150));
+    w.stop(); // 第一个还在跑 → abort
+    await p;
+    assert.equal(w.state, 'idle');
+    assert.ok(w.messages.length <= 1); // 最多第一条，绝无 8 条
+    assert.ok(events.some(e => e.type === 'sys' && /已停止/.test(e.data)));
+  } finally { delete process.env.MOCK_DELAY_MS; }
+});

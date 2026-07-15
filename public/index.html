@@ -76,7 +76,11 @@
       <div id="wbBar">
         <div id="wbRecipients"></div>
         <textarea id="wbInput" placeholder="发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）"></textarea>
-        <button id="wbSend" class="primary">发送</button>
+        <div id="wbActions">
+          <span id="wbRelayCtl"><button id="wbRelay" title="让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束">让他们讨论</button><label>× <input id="wbRounds" type="number" min="1" max="8" value="2"> 轮</label></span>
+          <button id="wbStop" hidden>停止</button>
+          <button id="wbSend" class="primary">发送</button>
+        </div>
       </div>
     </section>
     <section id="archiveView" hidden>
