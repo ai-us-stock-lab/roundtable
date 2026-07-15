@@ -319,6 +319,28 @@ async function refreshSessionList() {
     };
     item.appendChild(title);
     item.appendChild(meta);
+    const ren = document.createElement('button');
+    ren.className = 'session-rename';
+    ren.textContent = '✎';
+    ren.title = '重命名';
+    // 归档的会议条目右侧还有 ↻ 恢复按钮，改名按钮再往左让一格
+    ren.style.right = (s.archived && !isWb) ? '46px' : '26px';
+    ren.onclick = async e => {
+      e.stopPropagation();
+      const current = (s.topic || '').replace(/^\[工作台\] /, '');
+      const name = prompt('新名字：', current);
+      if (name === null || !name.trim() || name.trim() === current) return;
+      const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id) + '/rename'
+        : (isWb ? '/api/workbenches/' + s.id + '/rename' : '/api/sessions/' + s.id + '/rename');
+      const body = isWb && !s.archived ? { name: name.trim() } : { title: name.trim() };
+      let r;
+      try { r = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json(); }
+      catch (err) { return setStatebar('重命名失败: ' + err.message, true); }
+      if (r.error) return setStatebar(r.error, true);
+      if (!s.archived && isWb && s.id === wbId) $('#wbTitle').textContent = name.trim(); // 当前工作台标题同步
+      await refreshSessionList();
+    };
+    item.appendChild(ren);
     if (s.archived && !isWb) {
       const resume = document.createElement('button');
       resume.className = 'session-resume';

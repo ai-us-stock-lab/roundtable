@@ -222,3 +222,32 @@ test('relay: stop() 中止后续调用并回到 idle', async () => {
     assert.ok(events.some(e => e.type === 'sys' && /已停止/.test(e.data)));
   } finally { delete process.env.MOCK_DELAY_MS; }
 });
+
+test('server: 重命名——活动工作台 / 归档目录（含工作台前缀规则）', async () => {
+  const { startServer } = await import('../src/server.js');
+  const { mkdtempSync: mkd } = await import('node:fs');
+  const sessionsDir = mkd(path.join(tmpdir(), 'wb-ren-'));
+  const srv = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', sessionsDir });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) }).then(r => r.json());
+  try {
+    const { id } = await post('/api/workbenches', { name: '旧名', participants: ['mockA', 'mockB'] });
+    // 活动工作台重命名
+    const r1 = await post(`/api/workbenches/${id}/rename`, { name: '新名字' });
+    assert.equal(r1.ok, true);
+    let list = await fetch(base + '/api/sessions').then(r => r.json());
+    assert.ok(list.some(s => s.topic === '[工作台] 新名字' && !s.archived));
+    // 空名拒绝
+    const r2 = await post(`/api/workbenches/${id}/rename`, { name: '  ' });
+    assert.match(r2.error, /不能为空/);
+    // 归档重命名：删内存条目后目录变归档，改 metadata.topic
+    const dirname = path.basename(srv.benches.get(id).bench.dir);
+    srv.benches.delete(id);
+    const r3 = await post(`/api/archive/${encodeURIComponent(dirname)}/rename`, { title: '归档新名' });
+    assert.equal(r3.ok, true);
+    list = await fetch(base + '/api/sessions').then(r => r.json());
+    const item = list.find(s => s.id === dirname);
+    assert.equal(item.topic, '[工作台] 归档新名'); // 工作台前缀自动保留
+    assert.equal(item.type, 'workbench');
+  } finally { srv.close(); }
+});

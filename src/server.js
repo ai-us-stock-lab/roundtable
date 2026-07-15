@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, readdir, rm, rename, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rm, rename, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
@@ -176,6 +176,19 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         let entries;
         try { entries = await readdir(sessionsDir); } catch { entries = []; }
         const activeDirs = () => new Set([...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)).filter(Boolean));
+
+        if (sub === 'rename' && req.method === 'POST') {
+          if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
+          const body = await readBody(req);
+          const title = String(body.title ?? '').trim();
+          if (!title) return json(res, 400, { error: '名字不能为空' });
+          const metaPath = path.join(sessionsDir, dirname, 'metadata.json');
+          let meta;
+          try { meta = JSON.parse(await readFile(metaPath, 'utf8')); } catch { return json(res, 404, { error: '归档不存在' }); }
+          meta.topic = meta.type === 'workbench' ? '[工作台] ' + title : title;
+          await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+          return json(res, 200, { ok: true });
+        }
 
         if (sub === 'resume' && req.method === 'POST') {
           if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
@@ -358,6 +371,13 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return json(res, 200, { ok: true });
         }
         if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }
+        if (action === 'rename') {
+          const name = String(body.name ?? '').trim();
+          if (!name) return json(res, 400, { error: '名字不能为空' });
+          b.name = name;
+          await b.saveMeta();
+          return json(res, 200, { ok: true });
+        }
         if (action === 'promote') {
           // 升格：对话史打包成会议草稿，走既有 #draft 预填链路
           const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
@@ -415,6 +435,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           case 'stop': c.stopRound(); return json(res, 200, { ok: true });
           case 'save-partial': return fire(() => c.savePartial());
           case 'resummarize': return fire(() => c.resummarize());
+          case 'rename': {
+            // 只改展示标题（同步进 metadata）；后续轮次 prompt 中的议题随之更新——改名以澄清议题为目的，属预期行为
+            const title = String(body.title ?? '').trim();
+            if (!title) return json(res, 400, { error: '名字不能为空' });
+            c.topic = title;
+            await c.saveMeta(c.state);
+            return json(res, 200, { ok: true });
+          }
           case 'chat': {
             const text = String(body.text ?? '').trim();
             const to = Array.isArray(body.to) ? body.to : [];

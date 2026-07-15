@@ -73,13 +73,14 @@ body {
 .session-item.archived .session-title { color: var(--dim); }
 .session-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 40px; }
 .session-meta { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
-.session-del, .session-resume {
+.session-del, .session-resume, .session-rename {
   position: absolute; top: 7px; padding: 0 6px; font-size: 12px; line-height: 18px;
   border: none; background: transparent; color: var(--dim); opacity: 0; cursor: pointer; border-radius: 6px;
 }
 .session-del { right: 6px; }
 .session-resume { right: 26px; }
-.session-item:hover .session-del, .session-item:hover .session-resume { opacity: 0.7; }
+.session-item:hover .session-del, .session-item:hover .session-resume, .session-item:hover .session-rename { opacity: 0.7; }
+.session-rename:hover { opacity: 1 !important; background: var(--raise); color: var(--ink); }
 .session-del:hover { opacity: 1 !important; background: color-mix(in srgb, var(--err) 18%, var(--panel)); color: var(--err); }
 .session-resume:hover { opacity: 1 !important; background: color-mix(in srgb, var(--accent) 18%, var(--panel)); color: var(--accent); }
 
