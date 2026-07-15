@@ -1,8 +1,13 @@
-# Roundtable 多智能体决策委员会
+# Roundtable 多引擎圆桌
 
-**让你手里的多个 AI CLI 围着一张圆桌，对同一个问题开一场有规矩的辩论会。**
+**让你手里的多个 AI CLI 坐到一张桌子上——日常在工作台随手群聊，重决策升格为有规矩的委员会辩论。**
 
-Claude Code 说 A，Codex 说 B——听谁的？Roundtable 不让它们各说各话，而是走完整的委员会流程：
+两种房间，一套底盘：
+
+- **工作台**（高频日常）：勾选模型直接群聊，随时追问、点名任意模型接力，还能让模型之间就你的话题**互聊 N 轮**（互相反驳、追问，聊无可聊自动收敛）
+- **会议**（低频重决策）：完整委员会流程，见下
+
+Claude Code 说 A，Codex 说 B——听谁的？会议模式不让它们各说各话，而是走完整的委员会流程：
 
 ```
 独立判断（clean room）→ 交叉质询 → 分歧分类 → 证据仲裁 → 最小下一步
@@ -61,12 +66,20 @@ Windows 用户可双击 `open-roundtable.cmd`（自动探活+起服务+开浏览
 
 ## 功能
 
+**工作台（多模型群聊）**：
+- 不勾收件人 = 自动回复上一个发言的模型（追问零操作）；勾选 = 点名/广播（串行回复控成本）
+- **互聊**：「让他们讨论 × N 轮」——模型按顺序接力发言，每位都看到完整讨论（含其他模型的标注发言），被鼓励点名反驳与追问；随时可停，模型回复【无新增】自动收敛终止
+- 长历史自动裁剪（整条消息取舍，绝不切半），裁剪时界面明示"该模型仅看到最近 N 条"——禁止静默截断
+- **升格为会议**：一键把讨论打包成会议草稿，转入正式委员会流程
+- 全程落盘（每条消息、每次调用的完整 prompt 与原始输出），跨重启恢复
+
+**会议（委员会辩论）**：
 - **三栏会场**：双辩手流式输出、轮次卡片折叠、`##` 小节折叠、轮次跳转、运行计时
 - **书记摘要**：每轮滚动摘要 + 五类分歧分类表
 - **裁决卡**：结构化裁决（采纳方案/关键理由/被证伪的论点/风险与对冲/最小下一步），一键复制
 - **群聊抽屉**：会议轮次之外，随时基于会议上下文与任意参会 AI 自由讨论（各自立场延续）
 - **工作区只读挂载**：建会话时填项目目录，参会 AI 可自行查阅真实代码、发言带文件行号引用——治"纸上谈兵"
-- **会话管理**：历史列表、断线重连回放、跨重启恢复、归档只读、软删除（回收站 `sessions/.trash/`）
+- **会话管理**：历史列表、重命名、断线重连回放、跨重启恢复、归档只读、软删除（回收站 `sessions/.trash/`）
 - **模板**：通用辩论 / 协作开发（独立设计-交叉评审-融合）/ 项目会诊；`templates/<name>/template.json` 可自定义
 - **一句话发起**（可选）：把 `skills/roundtable-meeting/` 装进 Claude Code / Codex 的技能目录（`~/.claude/skills/`、`~/.codex/skills/`），在任何项目对话里说"开个多 agent 会议"，AI 自动写会诊简报、`POST /api/draft` 预填表单并弹出浏览器；会后说"导入会议结论"读回裁决卡
 
@@ -85,11 +98,14 @@ Windows 用户可双击 `open-roundtable.cmd`（自动探活+起服务+开浏览
 
 ---
 
-# Roundtable — Multi-Agent Decision Committee
+# Roundtable — One Table for All Your AI CLIs
 
-**Sit your AI CLIs around one table and make them debate properly.**
+**Group-chat your AI CLIs day to day; escalate to a structured debate committee when the decision matters.**
 
-When Claude Code says A and Codex says B, Roundtable runs a structured committee instead of letting you coin-flip:
+Two rooms on one chassis:
+
+- **Workbench** (everyday): pick models and just chat. Unaddressed messages route to whoever spoke last; address one model or broadcast to all. Hit "let them talk" and the models take turns responding to each other for N rounds — encouraged to push back and question each other by name, auto-stopping when the discussion converges. Long histories are trimmed whole-message with a visible "this model only sees the last N messages" chip — never silently. One click promotes the chat into a formal committee meeting.
+- **Committee** (when it counts): when Claude Code says A and Codex says B, Roundtable runs a structured committee instead of letting you coin-flip:
 
 ```
 independent takes (clean room) → cross-examination → disagreement classification → evidence-based judging → minimal next step

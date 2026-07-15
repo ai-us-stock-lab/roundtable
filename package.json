@@ -1,12 +1,12 @@
 {
   "name": "roundtable",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test \"test/*.test.js\""
   },
-  "description": "Multi-agent decision committee: structured debates between AI CLIs (Claude Code / Codex / any CLI) with cross-examination, disagreement classification and independent judging",
+  "description": "One table for all your AI CLIs: everyday multi-model group chat (workbench) + structured debate committee with cross-examination and independent judging. Rides your CLI subscriptions, zero dependencies.",
   "license": "MIT",
   "repository": {
     "type": "git",
