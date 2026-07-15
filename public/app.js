@@ -425,6 +425,9 @@ $('#chatSend').onclick = async () => {
   $('#chatInput').value = '';
   await api('chat', { text, to });
 };
+$('#chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#chatSend').onclick(); }
+});
 $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre').textContent);
 for (const [sel, side] of [['#colA', 'A'], ['#colB', 'B']]) {
   $(sel + ' .retry').onclick = () => api('retry', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });
