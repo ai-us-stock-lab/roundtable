@@ -44,3 +44,8 @@ button { cursor:pointer; } button:hover { border-color:var(--accent); }
 .session-resume { position: absolute; top: 6px; right: 26px; padding: 0 6px; font-size: 12px; line-height: 18px; border: none; background: transparent; color: var(--fg); opacity: 0; cursor: pointer; border-radius: 4px; }
 .session-item:hover .session-resume { opacity: 0.55; }
 .session-resume:hover { opacity: 1 !important; background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--accent); }
+details.round > summary { font-size:15px; font-weight:600; cursor:pointer; position:sticky; top:26px; background:var(--bg); padding:4px 0; z-index:2; }
+details.section { margin:6px 0 6px 4px; border-left:2px solid var(--line); padding-left:8px; }
+details.section > summary { cursor:pointer; font-weight:600; font-size:13px; color:var(--accent); padding:2px 0; }
+details.section[open] > summary { margin-bottom:4px; }
+.sections > pre, details.section pre { margin:4px 0; }

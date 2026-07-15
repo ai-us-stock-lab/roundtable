@@ -59,12 +59,14 @@ function stopBadgeTimer(side) { if (badgeTimers[side]) { clearInterval(badgeTime
 function ensureRoundDiv(side, label) {
   const key = side + label;
   if (!roundDivs[key]) {
-    const d = document.createElement('div');
+    // 整轮用 <details> 包裹：可整体折叠
+    const d = document.createElement('details');
     d.className = 'round';
-    const h4 = document.createElement('h4');
-    h4.textContent = label;
+    d.open = true;
+    const sum = document.createElement('summary');
+    sum.textContent = label;
     const pre = document.createElement('pre');
-    d.appendChild(h4);
+    d.appendChild(sum);
     d.appendChild(pre);
     feed(side).appendChild(d);
     roundDivs[key] = pre;
@@ -73,10 +75,51 @@ function ensureRoundDiv(side, label) {
     const btn = document.createElement('button');
     btn.textContent = label.replace(/[第轮\s]/g, ''); // 「第 2 轮」→「2」
     btn.title = '跳转到' + label;
-    btn.onclick = () => d.scrollIntoView({ block: 'start' }); // 不用 smooth：部分环境平滑滚动不执行
+    btn.onclick = () => { d.open = true; d.scrollIntoView({ block: 'start' }); }; // 不用 smooth：部分环境平滑滚动不执行
     nav.appendChild(btn);
   }
   return roundDivs[key];
+}
+
+// 发言完成后按「## 小节标题」拆成可折叠小节；流式期间保持纯文本追加。
+// 全部经 createElement + textContent 构建——模型输出绝不进 innerHTML。
+function sectionizeRound(side, label) {
+  const pre = roundDivs[side + label];
+  if (!pre || !pre.parentElement) return;
+  const raw = pre.dataset.raw ?? pre.textContent;
+  const lines = raw.split('\n');
+  const sections = [];
+  let cur = { title: '', body: [] };
+  for (const line of lines) {
+    const m = /^##\s+(.+)/.exec(line);
+    if (m) { if (cur.title || cur.body.join('').trim()) sections.push(cur); cur = { title: m[1].trim(), body: [] }; }
+    else cur.body.push(line);
+  }
+  if (cur.title || cur.body.join('').trim()) sections.push(cur);
+  if (sections.length < 2) return; // 无结构或只有一段——保持原样
+  const wrap = document.createElement('div');
+  wrap.className = 'sections';
+  wrap.dataset.raw = raw; // 保留原文：retry 等再来 chunk 时可还原为纯文本继续追加
+  for (const s of sections) {
+    if (!s.title) { // 首个无标题小节（导语）直接平铺
+      const p = document.createElement('pre');
+      p.textContent = s.body.join('\n').trim();
+      if (p.textContent) wrap.appendChild(p);
+      continue;
+    }
+    const det = document.createElement('details');
+    det.className = 'section';
+    det.open = true;
+    const sum = document.createElement('summary');
+    sum.textContent = s.title;
+    const body = document.createElement('pre');
+    body.textContent = s.body.join('\n').trim();
+    det.appendChild(sum);
+    det.appendChild(body);
+    wrap.appendChild(det);
+  }
+  pre.replaceWith(wrap);
+  roundDivs[side + label] = wrap; // 后续 chunk 到来时由 chunk 处理路径检测并还原
 }
 
 const isDebaterCall = label => /^r\d+(retry)?$/.test(label ?? ''); // r1、r2retry 等辩手轮次调用；r1summary/judge 等不路由进辩手栏
@@ -87,9 +130,18 @@ function onEvent(ev) {
   if (ev.type === 'chunk') {
     const side = sideOf[ev.agentId];
     if (!side || !isDebaterCall(ev.label)) return; // 非辩手轮次（如同一 agent 兼任的 summarizer/judge）的流不进辩手栏
-    const pre = ensureRoundDiv(side, roundTitleOf(ev.label));
-    pre.textContent += ev.data;             // textContent：天然防 XSS
-    pre.scrollIntoView({ block: 'end' });
+    const title = roundTitleOf(ev.label);
+    let node = ensureRoundDiv(side, title);
+    if (node.classList?.contains('sections')) {
+      // 该轮已分节展示（如 retry 再次来流）——还原为纯文本继续追加
+      const pre = document.createElement('pre');
+      pre.textContent = node.dataset.raw ?? '';
+      node.replaceWith(pre);
+      roundDivs[side + title] = pre;
+      node = pre;
+    }
+    node.textContent += ev.data;            // textContent：天然防 XSS
+    node.scrollIntoView({ block: 'end' });
   }
   if (ev.type === 'agent-status') {
     const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
@@ -98,7 +150,10 @@ function onEvent(ev) {
       const side = sideOf[ev.agentId];
       stopBadgeTimer(side);
       if (ev.data === 'running') startBadgeTimer(side);
-      else badge(side).textContent = ev.data;
+      else {
+        badge(side).textContent = ev.data;
+        if (ev.data === 'done') sectionizeRound(side, roundTitleOf(ev.label)); // 发言完成→按小节折叠展示
+      }
     } else if (ev.label === 'judge') {
       // 仲裁运行时显示身份（此前只有干巴巴的 judging 状态）
       if (ev.data === 'running') setStatebar('仲裁（' + name + '）正在裁决——比较证据强弱与证伪点质量…');
