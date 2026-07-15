@@ -44,7 +44,8 @@ body {
   font: 14px/1.65 -apple-system, "Segoe UI", system-ui, "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-#setup[hidden], #arena[hidden], #archiveView[hidden], #setupbar[hidden] { display: none !important; }
+#setup[hidden], #arena[hidden], #archiveView[hidden], #setupbar[hidden],
+#wbSetup[hidden], #workbench[hidden], #wbSetupBar[hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ============ 布局骨架 ============ */
@@ -260,6 +261,39 @@ details.section[open] > summary { margin-bottom: 4px; }
 #controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-bottom: 14px; }
 #controls .autoN { font-size: 12.5px; color: var(--dim); border: none; background: none; padding: 0; display: inline-flex; align-items: center; gap: 5px; }
 #controls #maxR { width: 52px; padding: 3px 6px; }
+
+/* ============ 工作台（多模型群聊） ============ */
+#newBenchBtn { width: 100%; font-weight: 600; padding: 7px 12px; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+#wbSetup { width: 100%; max-width: 720px; margin: 32px auto; display: grid; gap: 14px; padding: 0 20px; }
+#wbSetup h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+#wbSetup .hint { margin: 0; color: var(--dim); font-size: 13px; }
+#wbSetup input { padding: 9px 12px; }
+#wbParticipants {
+  display: flex; flex-wrap: wrap; gap: 14px; font-size: 13.5px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-surface); padding: 14px;
+}
+#wbParticipants label { display: inline-flex; align-items: center; gap: 5px; }
+#wbSetup .primary { padding: 11px 16px; font-size: 15px; justify-self: start; }
+#wbSetupBar { padding: 7px 12px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+#wbSetupBar.err { background: color-mix(in srgb, var(--err) 14%, var(--panel)); color: var(--err); }
+
+#workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: 880px; width: 100%; margin: 0 auto; padding: 0 20px; }
+#wbHead { display: flex; align-items: center; gap: 12px; padding: 14px 0 10px; border-bottom: 1px solid var(--line); }
+#wbHead strong { font-size: 15px; }
+#wbMembers { color: var(--dim); font-size: 12.5px; flex: 1; }
+#wbLog { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px 0; }
+#wbLog:empty::before { content: "开聊吧——不勾收件人时，消息发给上一个发言的模型"; color: var(--dim); font-size: 12.5px; }
+#wbLog .chat-msg { max-width: 85%; }
+.ctx-chip { margin-top: 6px; font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; display: inline-block; }
+.wb-error {
+  align-self: center; font-size: 12.5px; color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, var(--panel)); border-radius: 999px; padding: 4px 12px;
+}
+#wbBar { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 16px; border-top: 1px solid var(--line); }
+#wbRecipients { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--dim); }
+#wbRecipients label { display: inline-flex; align-items: center; gap: 4px; }
+#wbInput { width: 100%; min-height: 52px; }
+#wbSend { align-self: flex-end; padding: 8px 24px; }
 
 /* ============ 归档只读视图 ============ */
 #archiveView { max-width: 880px; margin: 0 auto; padding: 20px; width: 100%; }

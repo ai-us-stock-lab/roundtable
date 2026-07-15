@@ -3,6 +3,7 @@ import { readFile, readdir, rm, rename, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
+import { Workbench, loadWorkbenchFromDisk } from './workbench.js';
 import { loadTemplates } from './templates.js';
 import { resolveCliPath } from './resolve.js';
 
@@ -40,7 +41,20 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   }
   const templates = await loadTemplates(templatesDir);
   const sessions = new Map();
+  const benches = new Map(); // 工作台会话（与委员会平行的顶层类型）：{ bench, events, clients, updatedAt }
   const drafts = new Map(); // 外部 AI（项目对话侧）预填的议题+简报草稿，浏览器 #draft=<id> 打开即填入表单
+
+  // 工作台的内存条目 + SSE 事件缓冲（与委员会同一套回放模式）
+  const newBenchEntry = () => {
+    const entry = { events: [], clients: new Set(), updatedAt: new Date().toISOString() };
+    entry.emit = ev => {
+      entry.events.push(ev);
+      entry.updatedAt = new Date().toISOString();
+      const line = `data: ${JSON.stringify(ev)}\n\n`;
+      for (const c of entry.clients) { try { c.write(line); } catch { entry.clients.delete(c); } }
+    };
+    return entry;
+  };
 
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
   const MAX_BODY_BYTES = 1024 * 1024; // 1MB 上限，防止无界内存增长
@@ -81,10 +95,17 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         return json(res, 200, { agents: pub, templates: tpl });
       }
       if (url.pathname === '/api/sessions' && req.method === 'GET') {
-        const activeDirs = new Set([...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)).filter(Boolean));
+        const activeDirs = new Set([
+          ...[...sessions.values()].map(e => e.committee.dir && path.basename(e.committee.dir)),
+          ...[...benches.values()].map(e => e.bench.dir && path.basename(e.bench.dir)),
+        ].filter(Boolean));
         const active = [...sessions.entries()].map(([id, entry]) => ({
           id, topic: entry.committee.topic, state: entry.committee.state, round: entry.committee.round,
           archived: false, updatedAt: entry.updatedAt,
+        }));
+        const activeBenches = [...benches.entries()].map(([id, entry]) => ({
+          id, topic: '[工作台] ' + (entry.bench.name || '未命名'), state: entry.bench.state,
+          round: entry.bench.messages.length, archived: false, updatedAt: entry.updatedAt, type: 'workbench',
         }));
         let archived = [];
         try {
@@ -94,10 +115,10 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             let meta;
             try { meta = JSON.parse(await readFile(path.join(sessionsDir, d.name, 'metadata.json'), 'utf8')); }
             catch { continue; } // 无 metadata.json（非会话目录）跳过
-            archived.push({ id: d.name, topic: meta.topic, state: meta.status, round: meta.rounds, archived: true, updatedAt: meta.updatedAt });
+            archived.push({ id: d.name, topic: meta.topic, state: meta.status, round: meta.rounds, archived: true, updatedAt: meta.updatedAt, ...(meta.type ? { type: meta.type } : {}) });
           }
         } catch { /* sessionsDir 尚不存在 */ }
-        return json(res, 200, [...active, ...archived]);
+        return json(res, 200, [...active, ...activeBenches, ...archived]);
       }
       if (url.pathname === '/api/draft' && req.method === 'POST') {
         const body = await readBody(req);
@@ -249,6 +270,96 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return json(res, 200, { topic, sessionMd });
         }
       }
+      // ---- 工作台：多模型群聊会话 ----
+      if (url.pathname === '/api/workbenches' && req.method === 'POST') {
+        const body = await readBody(req);
+        const participants = Array.isArray(body.participants) ? body.participants : [];
+        if (!participants.length) return json(res, 400, { error: '请至少选择一个参与模型' });
+        for (const id of participants) {
+          if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
+          if (agents[id].unavailable) return json(res, 400, { error: `${agents[id].name} 当前不可用: ${agents[id].unavailable}` });
+        }
+        const entry = newBenchEntry();
+        const bench = new Workbench({
+          name: String(body.name ?? '').trim(), agents: deriveSessionAgents(agents, participants, ''),
+          participants, baseDir: sessionsDir, emit: ev => entry.emit(ev),
+        });
+        await bench.init();
+        entry.bench = bench;
+        const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+        benches.set(id, entry);
+        return json(res, 200, { id });
+      }
+      if (url.pathname === '/api/workbenches/resume' && req.method === 'POST') {
+        const body = await readBody(req);
+        const dirname = String(body.dirname ?? '');
+        let entries = [];
+        try { entries = (await readdir(sessionsDir, { withFileTypes: true })).filter(d => d.isDirectory()).map(d => d.name); } catch { /* 无目录 */ }
+        if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
+        for (const e of benches.values()) if (e.bench.dir && path.basename(e.bench.dir) === dirname) return json(res, 409, { error: '该工作台已在进行中' });
+        const dir = path.join(sessionsDir, dirname);
+        const { meta, messages } = await loadWorkbenchFromDisk(dir);
+        const participants = (meta.participants ?? []).filter(x => agents[x]);
+        if (!participants.length) return json(res, 400, { error: '该工作台的参与模型已全部从配置中移除' });
+        const entry = newBenchEntry();
+        const bench = await Workbench.resume({
+          name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, ''),
+          participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
+        });
+        entry.bench = bench;
+        // 合成事件回放：重建聊天记录
+        for (const msg of messages) entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}) });
+        entry.events.push({ type: 'state', data: 'idle' });
+        const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+        benches.set(id, entry);
+        return json(res, 200, { id });
+      }
+      const wb = url.pathname.match(/^\/api\/workbenches\/([a-z0-9]+)(\/([a-z-]+))?$/);
+      if (wb) {
+        const entry = benches.get(wb[1]);
+        if (!entry) return json(res, 404, { error: '工作台不存在' });
+        const b = entry.bench, action = wb[3];
+        if (!action && req.method === 'GET')
+          return json(res, 200, {
+            name: b.name, state: b.state, participants: b.participants,
+            agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
+          });
+        if (!action && req.method === 'DELETE') {
+          for (const client of entry.clients) { try { client.end(); } catch { /* 已断开 */ } }
+          benches.delete(wb[1]);
+          if (b.dir) await moveToTrash(b.dir);
+          return json(res, 200, { ok: true });
+        }
+        if (action === 'events' && req.method === 'GET') {
+          res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+          res.flushHeaders();
+          res.on('error', () => entry.clients.delete(res));
+          try {
+            for (const ev of entry.events) res.write(`data: ${JSON.stringify(ev)}\n\n`);
+          } catch { entry.clients.delete(res); return; }
+          entry.clients.add(res);
+          req.on('close', () => entry.clients.delete(res));
+          return;
+        }
+        if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
+        const body = await readBody(req);
+        if (action === 'message') {
+          const text = String(body.text ?? '').trim();
+          if (!text) return json(res, 400, { error: '内容不能为空' });
+          if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          const to = (Array.isArray(body.to) ? body.to : []).filter(x => b.participants.includes(x));
+          b.message(text, to).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
+          return json(res, 200, { ok: true });
+        }
+        if (action === 'promote') {
+          // 升格：对话史打包成会议草稿，走既有 #draft 预填链路
+          const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+          drafts.set(id, { topic: String(body.topic ?? '') || ('工作台议题：' + (b.name || '未命名')), materials: b.promoteMaterials(), template: 'general', workspace: '' });
+          while (drafts.size > 20) drafts.delete(drafts.keys().next().value);
+          return json(res, 200, { id });
+        }
+        return json(res, 404, { error: '未知操作: ' + action });
+      }
       const m = url.pathname.match(/^\/api\/sessions\/([a-z0-9]+)(\/([a-z-]+))?$/);
       if (m) {
         const entry = sessions.get(m[1]);
@@ -315,7 +426,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   });
 
   await new Promise(r => server.listen(port, '127.0.0.1', r));
-  return { port: server.address().port, close: () => server.close(), sessions };
+  return { port: server.address().port, close: () => server.close(), sessions, benches };
 }
 
 // 直接运行时启动

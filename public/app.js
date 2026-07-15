@@ -244,14 +244,15 @@ async function sendNote() {
   if (t) { await api('interject', { text: t }); $('#note').value = ''; }
 }
 
-// ---- 视图切换 ----
-function showSetup() { $('#arena').hidden = true; $('#archiveView').hidden = true; $('#setup').hidden = false; }
-function showArena() { $('#setup').hidden = true; $('#archiveView').hidden = true; $('#arena').hidden = false; }
+// ---- 视图切换（五个顶层视图互斥） ----
+const VIEWS = ['#setup', '#arena', '#archiveView', '#wbSetup', '#workbench'];
+function showView(sel) { for (const v of VIEWS) $(v).hidden = v !== sel; }
+function showSetup() { showView('#setup'); }
+function showArena() { showView('#arena'); }
 function showArchiveView(topic, sessionMd) {
-  $('#setup').hidden = true; $('#arena').hidden = true;
   $('#archiveTopic').textContent = topic ?? '';
   $('#archiveContent').textContent = sessionMd ?? '';
-  $('#archiveView').hidden = false;
+  showView('#archiveView');
 }
 
 // ---- 重置会话相关 UI 状态（新会话 / 重连前调用）----
@@ -289,14 +290,17 @@ async function refreshSessionList() {
   const el = $('#sessionList');
   el.innerHTML = '';
   for (const s of list) {
+    const isWb = s.type === 'workbench';
     const item = document.createElement('div');
-    item.className = 'session-item' + (s.archived ? ' archived' : '') + (!s.archived && s.id === sid ? ' active' : '');
+    item.className = 'session-item' + (s.archived ? ' archived' : '') + (!s.archived && (s.id === sid || s.id === wbId) ? ' active' : '');
     const title = document.createElement('div');
     title.className = 'session-title';
-    title.textContent = s.topic || '（无议题）';
+    title.textContent = (s.topic || '（无议题）').replace(/^\[工作台\] /, '');
     const meta = document.createElement('div');
     meta.className = 'session-meta';
-    meta.textContent = s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮');
+    meta.textContent = isWb
+      ? ('工作台 · ' + (s.archived ? '已归档' : (s.state === 'busy' ? '回复中' : '在线')) + ' · ' + (s.round ?? 0) + ' 条')
+      : (s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮'));
     const del = document.createElement('button');
     del.className = 'session-del';
     del.textContent = '✕';
@@ -304,16 +308,18 @@ async function refreshSessionList() {
     del.onclick = async e => {
       e.stopPropagation(); // 不触发条目本身的打开动作
       if (!confirm('删除「' + (s.topic || '（无议题）') + '」？记录将移入回收站（sessions/.trash/），需要时可手工找回。')) return;
-      const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id) : '/api/sessions/' + s.id;
+      const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id)
+        : (isWb ? '/api/workbenches/' + s.id : '/api/sessions/' + s.id);
       let r;
       try { r = await (await fetch(url, { method: 'DELETE' })).json(); } catch (err) { return setStatebar('删除失败: ' + err.message, true); }
       if (r.error) return setStatebar(r.error, true);
       if (!s.archived && s.id === sid) { closeEvents(); sid = null; resetSessionUI(); showSetup(); } // 删的是当前会话则回到建会话页
+      if (!s.archived && s.id === wbId) { closeWbEvents(); showSetup(); }
       await refreshSessionList();
     };
     item.appendChild(title);
     item.appendChild(meta);
-    if (s.archived) {
+    if (s.archived && !isWb) {
       const resume = document.createElement('button');
       resume.className = 'session-resume';
       resume.textContent = '↻';
@@ -322,7 +328,10 @@ async function refreshSessionList() {
       item.appendChild(resume);
     }
     item.appendChild(del);
-    item.onclick = () => s.archived ? openArchive(s.id) : attach(s.id);
+    // 工作台：归档条目点击即恢复（无只读视图——恢复零成本，不产生 CLI 调用）
+    item.onclick = () => isWb
+      ? (s.archived ? resumeWorkbench(s.id) : attachWorkbench(s.id))
+      : (s.archived ? openArchive(s.id) : attach(s.id));
     el.appendChild(item);
   }
 }
@@ -332,6 +341,7 @@ async function attach(id) {
   let detail;
   try { detail = await (await fetch(`/api/sessions/${id}`)).json(); } catch (e) { return setStatebar('无法连接服务: ' + e.message, true); }
   if (detail.error) return setStatebar(detail.error, true);
+  closeWbEvents();
   resetSessionUI();
   sid = id;
   sideOf = { [detail.roles.debaters[0]]: 'A', [detail.roles.debaters[1]]: 'B' };
@@ -364,10 +374,170 @@ async function resumeSession(dirname) {
 
 $('#newSessionBtn').onclick = () => {
   closeEvents();
+  closeWbEvents();
   sid = null;
   resetSessionUI();
   showSetup();
   refreshSessionList();
+};
+
+// ---- 工作台：多模型群聊 ----
+let wbId = null, wbEs = null;
+const wbTyping = {}; // agentId -> "正在输入…" 元素
+
+function closeWbEvents() { if (wbEs) { wbEs.close(); wbEs = null; } wbId = null; }
+
+function renderWbParticipantPicker() {
+  const el = $('#wbParticipants');
+  el.innerHTML = '';
+  for (const [id, a] of Object.entries(cfg.agents)) {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = id;
+    cb.disabled = !!a.unavailable;
+    cb.checked = !a.unavailable && ['claude', 'codex'].includes(id);
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + a.name + (a.unavailable ? '（不可用）' : '')));
+    el.appendChild(label);
+  }
+}
+
+function setWbBusy(busy) {
+  $('#wbSend').disabled = busy;
+  $('#wbSend').textContent = busy ? '回复中…' : '发送';
+}
+
+function appendWbMessage(from, name, to, text, ctx) {
+  const el = wbTyping[from]; if (el) { el.remove(); delete wbTyping[from]; }
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + (from === 'user' ? 'chat-user' : 'chat-agent');
+  const nameEl = document.createElement('div');
+  nameEl.className = 'chat-name';
+  nameEl.textContent = name + (to?.length ? ' → ' + to.join('、') : '');
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'chat-body';
+  bodyEl.textContent = text;
+  div.appendChild(nameEl);
+  div.appendChild(bodyEl);
+  if (ctx) { // 截断明示（裁决卡：禁止静默截断）
+    const chip = document.createElement('div');
+    chip.className = 'ctx-chip';
+    chip.textContent = `该模型仅看到最近 ${ctx.shown} 条（共 ${ctx.total} 条）`;
+    div.appendChild(chip);
+  }
+  $('#wbLog').appendChild(div);
+  $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+}
+
+function appendWbError(text) {
+  const div = document.createElement('div');
+  div.className = 'wb-error';
+  div.textContent = text;
+  $('#wbLog').appendChild(div);
+  $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+}
+
+function onWbEvent(ev) {
+  if (ev.type === 'chat-message') appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx);
+  if (ev.type === 'state') setWbBusy(ev.data === 'busy');
+  if (ev.type === 'agent-status') {
+    const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
+    if (ev.data === 'running') {
+      const div = document.createElement('div');
+      div.className = 'chat-msg chat-agent chat-typing';
+      div.textContent = name + ' 正在输入…';
+      $('#wbLog').appendChild(div);
+      $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+      wbTyping[ev.agentId] = div;
+    } else {
+      const el = wbTyping[ev.agentId]; if (el) { el.remove(); delete wbTyping[ev.agentId]; }
+    }
+  }
+  if (ev.type === 'error') appendWbError('错误' + (ev.agentId ? '（' + (cfg.agents[ev.agentId]?.name ?? ev.agentId) + '）' : '') + ': ' + ev.data);
+}
+
+async function attachWorkbench(id) {
+  let info;
+  try { info = await (await fetch('/api/workbenches/' + id)).json(); } catch (e) { return setStatebar('无法连接服务: ' + e.message, true); }
+  if (info.error) return setStatebar(info.error, true);
+  closeEvents();
+  closeWbEvents();
+  sid = null;
+  wbId = id;
+  $('#wbTitle').textContent = info.name || '未命名工作台';
+  $('#wbMembers').textContent = info.participants.map(p => info.agentNames[p] ?? p).join(' · ');
+  $('#wbLog').innerHTML = '';
+  const rc = $('#wbRecipients');
+  rc.innerHTML = '';
+  for (const p of info.participants) {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = p;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + (info.agentNames[p] ?? p)));
+    rc.appendChild(label);
+  }
+  showView('#workbench');
+  wbEs = new EventSource(`/api/workbenches/${id}/events`);
+  wbEs.onmessage = e => onWbEvent(JSON.parse(e.data));
+  wbEs.onerror = () => appendWbError('事件流连接中断——刷新页面或从侧边栏重新进入');
+  await refreshSessionList();
+}
+
+async function resumeWorkbench(dirname) {
+  let r;
+  try { r = await (await fetch('/api/workbenches/resume', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dirname }) })).json(); }
+  catch (e) { return setStatebar('恢复失败: ' + e.message, true); }
+  if (r.error) return setStatebar(r.error, true);
+  await attachWorkbench(r.id);
+}
+
+async function sendWbMessage() {
+  const text = $('#wbInput').value.trim();
+  if (!text || !wbId) return;
+  const to = [...$('#wbRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
+  $('#wbInput').value = '';
+  let r;
+  try { r = await (await fetch(`/api/workbenches/${wbId}/message`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, to }) })).json(); }
+  catch (e) { return appendWbError('网络错误: ' + e.message); }
+  if (r.error) appendWbError(r.error);
+}
+
+$('#newBenchBtn').onclick = () => {
+  closeEvents();
+  closeWbEvents();
+  sid = null;
+  resetSessionUI();
+  renderWbParticipantPicker();
+  $('#wbName').value = '';
+  showView('#wbSetup');
+  refreshSessionList();
+};
+$('#wbCreate').onclick = async () => {
+  const participants = [...$('#wbParticipants').querySelectorAll('input:checked')].map(cb => cb.value);
+  const bar = $('#wbSetupBar');
+  const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
+  if (!participants.length) return err('请至少勾选一个参与模型');
+  let r;
+  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), participants }) })).json(); }
+  catch (e) { return err('无法连接服务（' + e.message + '）——请确认服务在运行'); }
+  if (r.error) return err(r.error);
+  await attachWorkbench(r.id);
+};
+$('#wbSend').onclick = sendWbMessage;
+$('#wbInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendWbMessage(); }
+});
+$('#wbPromote').onclick = async () => {
+  if (!wbId) return;
+  let r;
+  try { r = await (await fetch(`/api/workbenches/${wbId}/promote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
+  catch (e) { return appendWbError('升格失败: ' + e.message); }
+  if (r.error) return appendWbError(r.error);
+  showSetup();
+  location.hash = '#draft=' + r.id; // 触发 hashchange → 预填建会表单
 };
 
 $('#archiveBack').onclick = () => { sid ? showArena() : showSetup(); };
@@ -398,6 +568,7 @@ $('#start').onclick = async () => {
   if (r.error) {
     return setStatebar(r.error, true);
   }
+  closeWbEvents();
   sid = r.id;
   resetSessionUI();
   $('#setup').hidden = true; // setupbar 已在 resetSessionUI 中清空隐藏
