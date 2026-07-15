@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, readdir, rm } from 'node:fs/promises';
+import { readFile, readdir, rm, rename, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
@@ -54,6 +54,13 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
     });
     req.on('end', () => { if (done) return; done = true; try { r(JSON.parse(b || '{}')); } catch { r({}); } });
   });
+
+  // 软删除：移入 sessions/.trash/（可手工找回），绝不物理抹除会议记录
+  const moveToTrash = async dir => {
+    const trashDir = path.join(sessionsDir, '.trash');
+    await mkdir(trashDir, { recursive: true });
+    await rename(dir, path.join(trashDir, path.basename(dir) + '-' + Date.now().toString(36)));
+  };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -220,7 +227,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (req.method === 'DELETE') {
             // 不允许删除仍挂在活动会话名下的目录（先删活动会话）
             if (activeDirs().has(dirname)) return json(res, 409, { error: '该会话仍在进行中，请先删除活动会话' });
-            await rm(dir, { recursive: true, force: true });
+            await moveToTrash(dir);
             return json(res, 200, { ok: true });
           }
           let sessionMd;
@@ -244,7 +251,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           try { c.stopRound(); } catch { /* 未在运行中也无妨 */ }
           for (const client of entry.clients) { try { client.end(); } catch { /* 已断开 */ } }
           sessions.delete(m[1]);
-          if (c.dir) await rm(c.dir, { recursive: true, force: true });
+          if (c.dir) await moveToTrash(c.dir);
           return json(res, 200, { ok: true });
         }
         if (!action && req.method === 'GET')
