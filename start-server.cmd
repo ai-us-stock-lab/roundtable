@@ -1,4 +1,4 @@
 @echo off
-rem Roundtable 常驻服务启动器（开机自启计划任务使用）
+rem Roundtable resident server launcher (used by Startup folder autostart)
 cd /d "C:\Users\xiaoJ\Documents\Roundtable"
 node src\server.js
