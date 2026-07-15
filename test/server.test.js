@@ -10,7 +10,7 @@ import { startServer } from '../src/server.js';
 const sessionsDir = mkdtempSync(path.join(tmpdir(), 'rt-srv-'));
 const srv = await startServer({
   port: 0, // 随机可用端口
-  agentsFile: 'adapters/agents.json',
+  agentsFile: 'test/agents.fixture.json',
   templatesDir: 'templates',
   sessionsDir,
 });
@@ -234,7 +234,7 @@ test('挂载不存在的工作区目录返回 400', async () => {
 
 test('POST /api/archive/:dirname/resume 跨实例恢复：装配 Committee、SSE 缓冲回放、可继续辩论并真实衔接历史', async () => {
   const resumeSessionsDir = mkdtempSync(path.join(tmpdir(), 'rt-resume-'));
-  const s1 = await startServer({ port: 0, agentsFile: 'adapters/agents.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
+  const s1 = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
   const base1 = `http://127.0.0.1:${s1.port}`;
   const create = await (await fetch(base1 + '/api/sessions', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -250,7 +250,7 @@ test('POST /api/archive/:dirname/resume 跨实例恢复：装配 Committee、SSE
   const dirname = path.basename(detail.dir);
   await s1.close(); // 模拟服务重启：第一个实例彻底关闭，进程内 sessions Map 消失
 
-  const s2 = await startServer({ port: 0, agentsFile: 'adapters/agents.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
+  const s2 = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', templatesDir: 'templates', sessionsDir: resumeSessionsDir });
   const base2 = `http://127.0.0.1:${s2.port}`;
   try {
     const resumed = await (await fetch(`${base2}/api/archive/${encodeURIComponent(dirname)}/resume`, { method: 'POST' })).json();

@@ -1,44 +1,4 @@
 {
-  "mockA": {
-    "name": "MockA",
-    "command": [
-      "node",
-      "test/mock-cli.cjs"
-    ],
-    "input": "stdin",
-    "output": "text",
-    "timeoutMs": 5000,
-    "envWhitelist": [
-      "PATH",
-      "SYSTEMROOT"
-    ],
-    "cwd": ".",
-    "roles": [
-      "debater",
-      "judge",
-      "summarizer"
-    ]
-  },
-  "mockB": {
-    "name": "MockB",
-    "command": [
-      "node",
-      "test/mock-cli.cjs"
-    ],
-    "input": "stdin",
-    "output": "text",
-    "timeoutMs": 5000,
-    "envWhitelist": [
-      "PATH",
-      "SYSTEMROOT"
-    ],
-    "cwd": ".",
-    "roles": [
-      "debater",
-      "judge",
-      "summarizer"
-    ]
-  },
   "claude": {
     "name": "Claude",
     "command": [
