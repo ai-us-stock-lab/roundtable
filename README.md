@@ -34,5 +34,11 @@ templates/<name>/template.json。nantian 模板会把两边各自蒸馏的南添
 
 - Windows 下：resolveCliPath 自动解析 CLI 到 .cmd 路径，spawn 在 win32 下自动经 cmd /c 包装执行，
   无需在 agents.json 中手工修改 command。
-- 半成品会话完整落盘（status: partial）且可人工查阅 session.md，但服务重启后暂不支持从落盘状态
-  恢复继续辩论——属已知未实现项，列为后续增强。
+- 会话跨重启恢复：服务重启后归档会话可在侧边栏点「恢复」继续辩论（从磁盘装配历史，恢复时采用当前 adapter 配置）。
+- 删除为软删除：移入 sessions/.trash/，可手工找回。
+
+## 路线备忘（会诊裁决 2026-07-15）
+
+写模式（AI 改文件的 diff-only 桥接）当前不做。触发重新评估的硬阈值（三条件与门）：
+**连续 3-5 场真实会议中 ≥2 场出现「裁决被采纳 且 ≥50% 内容需改文件 且 手工落地 >15 分钟」**——
+数据来源为各场 sessions/<dir>/outcome.md，满足即重开会议评估写模式。

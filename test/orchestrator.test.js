@@ -229,3 +229,16 @@ test('resummarize 用新 AbortController 重新生成本轮摘要', async () => 
   assert.notEqual(c.abort, oldAbort);
   assert.doesNotMatch(c.history.at(-1).summary, /摘要失败/);
 });
+
+test('书记输出缺「分歧分类表」结构时发出格式警告', async () => {
+  const { c, events } = makeCommittee();
+  // 让书记（agent s）输出固定文本（不含分歧分类表结构）
+  c.agents.s.envWhitelist = ['PATH', 'SYSTEMROOT', 'MOCK_FIXED_OUTPUT'];
+  process.env.MOCK_FIXED_OUTPUT = '这是一段没有结构的摘要';
+  try {
+    await c.init();
+    await c.runNextRound();
+  } finally { delete process.env.MOCK_FIXED_OUTPUT; }
+  const warn = events.find(e => e.type === 'error' && /分歧分类表/.test(e.data));
+  assert.ok(warn, '应发出缺结构警告');
+});

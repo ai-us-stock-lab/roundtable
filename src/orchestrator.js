@@ -129,6 +129,9 @@ export class Committee {
     });
     const r = await this.call(this.roles.summarizer, `r${this.round}summary`, prompt);
     entry.summary = r.ok ? r.text : '（本轮摘要失败：' + r.error + '）';
+    // 会诊裁决 2026-07-15：书记调用成功但缺关键结构时不再静默——下游收敛判定与阅读体验会悄悄劣化
+    if (r.ok && !entry.summary.includes('分歧分类表'))
+      this.emit({ type: 'error', agentId: this.roles.summarizer, label: `r${this.round}summary`, data: '书记输出缺少「分歧分类表」结构，摘要质量可能下降（可点「重新生成本轮摘要」）' });
     await store.saveSummary(this.dir, this.round, entry.summary);
     await store.saveDisagreements(this.dir, entry.summary);
     this.emit({ type: 'summary', round: this.round, data: entry.summary });

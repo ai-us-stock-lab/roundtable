@@ -186,7 +186,7 @@ async function refreshSessionList() {
     del.title = '删除该会话记录';
     del.onclick = async e => {
       e.stopPropagation(); // 不触发条目本身的打开动作
-      if (!confirm('删除「' + (s.topic || '（无议题）') + '」？记录将从磁盘移除，不可恢复。')) return;
+      if (!confirm('删除「' + (s.topic || '（无议题）') + '」？记录将移入回收站（sessions/.trash/），需要时可手工找回。')) return;
       const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id) : '/api/sessions/' + s.id;
       let r;
       try { r = await (await fetch(url, { method: 'DELETE' })).json(); } catch (err) { return setStatebar('删除失败: ' + err.message, true); }
