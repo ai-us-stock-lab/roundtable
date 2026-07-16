@@ -299,6 +299,11 @@ async function refreshSessionList() {
   const el = $('#sessionList');
   el.innerHTML = '';
   for (const s of list) {
+    const fmtTime = iso => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
     const isWb = s.type === 'workbench';
     const item = document.createElement('div');
     item.className = 'session-item' + (s.archived ? ' archived' : '') + (!s.archived && (s.id === sid || s.id === wbId) ? ' active' : '');
@@ -307,9 +312,11 @@ async function refreshSessionList() {
     title.textContent = (s.topic || '（无议题）').replace(/^\[工作台\] /, '');
     const meta = document.createElement('div');
     meta.className = 'session-meta';
-    meta.textContent = isWb
+    const when = s.updatedAt ? ' · ' + fmtTime(s.updatedAt) : '';
+    meta.textContent = (isWb
       ? ('工作台 · ' + (s.archived ? '已归档' : (s.state === 'busy' ? '回复中' : '在线')) + ' · ' + (s.round ?? 0) + ' 条')
-      : (s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮'));
+      : (s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮'))) + when;
+    meta.title = s.updatedAt ? '最后更新：' + new Date(s.updatedAt).toLocaleString() : '';
     const del = document.createElement('button');
     del.className = 'session-del';
     del.textContent = '✕';

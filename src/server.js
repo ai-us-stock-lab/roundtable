@@ -118,6 +118,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             archived.push({ id: d.name, topic: meta.topic, state: meta.status, round: meta.rounds, archived: true, updatedAt: meta.updatedAt, ...(meta.type ? { type: meta.type } : {}) });
           }
         } catch { /* sessionsDir 尚不存在 */ }
+        archived.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))); // 归档按最近更新在前
         return json(res, 200, [...active, ...activeBenches, ...archived]);
       }
       if (url.pathname === '/api/draft' && req.method === 'POST') {
