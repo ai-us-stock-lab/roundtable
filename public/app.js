@@ -244,6 +244,14 @@ async function sendNote() {
   if (t) { await api('interject', { text: t }); $('#note').value = ''; }
 }
 
+// 会场常驻显示"在讨论什么、前提是什么"——会一开跑建会表单就没了，这里是唯一入口
+function setBrief(topic, materials) {
+  $('#brief').hidden = false;
+  $('#briefTopic').textContent = topic ?? '';
+  $('#briefMaterials').textContent = (materials ?? '').trim() || '（无背景材料）';
+  $('#briefDetails').open = false;
+}
+
 // ---- 视图切换（五个顶层视图互斥） ----
 const VIEWS = ['#setup', '#arena', '#archiveView', '#wbSetup', '#workbench'];
 function showView(sel) { for (const v of VIEWS) $(v).hidden = v !== sel; }
@@ -258,6 +266,7 @@ function showArchiveView(topic, sessionMd) {
 // ---- 重置会话相关 UI 状态（新会话 / 重连前调用）----
 function resetSessionUI() {
   stopBadgeTimer('A'); stopBadgeTimer('B');
+  $('#brief').hidden = true; $('#briefTopic').textContent = ''; $('#briefMaterials').textContent = '';
   $('#colA .roundnav').innerHTML = ''; $('#colB .roundnav').innerHTML = '';
   $('#colA .feed').innerHTML = ''; $('#colB .feed').innerHTML = '';
   $('#colA .badge').textContent = ''; $('#colB .badge').textContent = '';
@@ -367,6 +376,7 @@ async function attach(id) {
   resetSessionUI();
   sid = id;
   sideOf = { [detail.roles.debaters[0]]: 'A', [detail.roles.debaters[1]]: 'B' };
+  setBrief(detail.topic, detail.materials);
   $('#colA .name').textContent = detail.agentNames?.[detail.roles.debaters[0]] ?? detail.roles.debaters[0];
   $('#colB .name').textContent = detail.agentNames?.[detail.roles.debaters[1]] ?? detail.roles.debaters[1];
   renderChatRecipients(detail.roles, detail.agentNames ?? {});
@@ -612,6 +622,7 @@ $('#start').onclick = async () => {
   closeWbEvents();
   sid = r.id;
   resetSessionUI();
+  setBrief($('#topic').value, $('#materials').value);
   $('#setup').hidden = true; // setupbar 已在 resetSessionUI 中清空隐藏
   sideOf = { [roles.debaters[0]]: 'A', [roles.debaters[1]]: 'B' };
   $('#colA .name').textContent = cfg.agents[roles.debaters[0]].name;

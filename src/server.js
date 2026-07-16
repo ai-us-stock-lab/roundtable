@@ -402,7 +402,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         }
         if (!action && req.method === 'GET')
           return json(res, 200, {
-            state: c.state, round: c.round, topic: c.topic, dir: c.dir,
+            state: c.state, round: c.round, topic: c.topic, dir: c.dir, materials: c.materials,
             roles: c.roles, agentNames: Object.fromEntries(Object.entries(c.agents).map(([id, a]) => [id, a.name])),
           });
         // events 是 GET 语义（SSE），必须先放行，再统一做 POST 检查
