@@ -422,6 +422,7 @@ $('#newSessionBtn').onclick = () => {
 
 // ---- 工作台：多模型群聊 ----
 let wbId = null, wbEs = null;
+let wbInfo = null; // 当前工作台详情（workspace/writeCapable 等）
 const wbTyping = {}; // agentId -> "正在输入…" 元素
 
 function closeWbEvents() { if (wbEs) { wbEs.close(); wbEs = null; } wbId = null; }
@@ -449,7 +450,7 @@ function setWbBusy(busy) {
   $('#wbStop').hidden = !busy;
 }
 
-function appendWbMessage(from, name, to, text, ctx) {
+function appendWbMessage(from, name, to, text, ctx, build) {
   const el = wbTyping[from]; if (el) { el.remove(); delete wbTyping[from]; }
   const div = document.createElement('div');
   div.className = 'chat-msg ' + (from === 'user' ? 'chat-user' : 'chat-agent');
@@ -467,8 +468,74 @@ function appendWbMessage(from, name, to, text, ctx) {
     chip.textContent = `该模型仅看到最近 ${ctx.shown} 条（共 ${ctx.total} 条）`;
     div.appendChild(chip);
   }
+  if (build) div.appendChild(renderBuildCard(build));
   $('#wbLog').appendChild(div);
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+}
+
+// 动手 diff 卡片：改动统计 + 可折叠 patch（+/- 行着色）+ 应用/丢弃审批
+function renderBuildCard(build) {
+  const card = document.createElement('div');
+  card.className = 'build-card';
+  card.dataset.buildId = build.buildId;
+  const head = document.createElement('div');
+  head.className = 'build-head';
+  const statEl = document.createElement('pre');
+  statEl.className = 'build-stat';
+  statEl.textContent = build.stat;
+  const det = document.createElement('details');
+  const sum = document.createElement('summary');
+  sum.textContent = '查看 diff';
+  const pre = document.createElement('pre');
+  pre.className = 'build-patch';
+  for (const line of (build.patch || '（patch 内容缺失，仅存统计）').split('\n')) {
+    const span = document.createElement('span');
+    span.textContent = line + '\n';
+    if (/^\+(?!\+\+)/.test(line)) span.className = 'dl-add';
+    else if (/^-(?!--)/.test(line)) span.className = 'dl-del';
+    else if (/^(diff |@@)/.test(line)) span.className = 'dl-meta';
+    pre.appendChild(span);
+  }
+  det.appendChild(sum);
+  det.appendChild(pre);
+  const bar = document.createElement('div');
+  bar.className = 'build-bar';
+  const status = document.createElement('span');
+  status.className = 'build-status';
+  const setStatus = st => {
+    status.textContent = st === 'pending' ? '待审批' : (st === 'applied' ? '✓ 已应用到主工作区' : '已丢弃');
+    status.dataset.st = st;
+    bar.querySelectorAll('button').forEach(b => { b.hidden = st !== 'pending'; });
+  };
+  card.updateStatus = setStatus;
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'primary';
+  applyBtn.textContent = '应用到主工作区';
+  applyBtn.onclick = async () => {
+    applyBtn.disabled = true;
+    let r;
+    try { r = await (await fetch(`/api/workbenches/${wbId}/builds/${build.buildId}/apply`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
+    catch (e) { applyBtn.disabled = false; return appendWbError('应用失败: ' + e.message); }
+    applyBtn.disabled = false;
+    if (r.error) appendWbError('应用失败: ' + r.error + '（若与你的本地改动冲突，可手工应用会话目录 builds/ 下的 patch）');
+  };
+  const discardBtn = document.createElement('button');
+  discardBtn.textContent = '丢弃';
+  discardBtn.onclick = async () => {
+    let r;
+    try { r = await (await fetch(`/api/workbenches/${wbId}/builds/${build.buildId}/discard`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
+    catch (e) { return appendWbError('丢弃失败: ' + e.message); }
+    if (r.error) appendWbError(r.error);
+  };
+  bar.appendChild(applyBtn);
+  bar.appendChild(discardBtn);
+  bar.appendChild(status);
+  head.appendChild(statEl);
+  card.appendChild(head);
+  card.appendChild(det);
+  card.appendChild(bar);
+  setStatus(build.status);
+  return card;
 }
 
 function appendWbError(text) {
@@ -480,7 +547,11 @@ function appendWbError(text) {
 }
 
 function onWbEvent(ev) {
-  if (ev.type === 'chat-message') appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx);
+  if (ev.type === 'chat-message') appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build);
+  if (ev.type === 'build-status') {
+    const card = $('#wbLog').querySelector(`.build-card[data-build-id="${ev.buildId}"]`);
+    if (card?.updateStatus) card.updateStatus(ev.status);
+  }
   if (ev.type === 'state') setWbBusy(ev.data === 'busy');
   if (ev.type === 'agent-status') {
     const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
@@ -513,8 +584,12 @@ async function attachWorkbench(id) {
   closeWbEvents();
   sid = null;
   wbId = id;
+  wbInfo = info;
   $('#wbTitle').textContent = info.name || '未命名工作台';
-  $('#wbMembers').textContent = info.participants.map(p => info.agentNames[p] ?? p).join(' · ');
+  $('#wbMembers').textContent = info.participants.map(p => info.agentNames[p] ?? p).join(' · ')
+    + (info.workspace ? ' · 挂载: ' + info.workspace : '');
+  // 动手按钮：挂了工作区且有可写模型才出现
+  $('#wbBuild').hidden = !(info.workspace && (info.writeCapable ?? []).length);
   $('#wbLog').innerHTML = '';
   const rc = $('#wbRecipients');
   rc.innerHTML = '';
@@ -524,7 +599,9 @@ async function attachWorkbench(id) {
     cb.type = 'checkbox';
     cb.value = p;
     label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + (info.agentNames[p] ?? p)));
+    const canBuild = (info.writeCapable ?? []).includes(p) && info.workspace;
+    label.appendChild(document.createTextNode(' ' + (info.agentNames[p] ?? p) + (canBuild ? '（可动手）' : '')));
+    if (canBuild) label.title = '该模型可「动手」：在隔离副本内真实改文件，diff 由你审批';
     rc.appendChild(label);
   }
   showView('#workbench');
@@ -569,7 +646,7 @@ $('#wbCreate').onclick = async () => {
   const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
   if (!participants.length) return err('请至少勾选一个参与模型');
   let r;
-  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), participants }) })).json(); }
+  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants }) })).json(); }
   catch (e) { return err('无法连接服务（' + e.message + '）——请确认服务在运行'); }
   if (r.error) return err(r.error);
   await attachWorkbench(r.id);
@@ -585,6 +662,20 @@ $('#wbRelay').onclick = async () => {
   if (r.error) appendWbError(r.error);
 };
 $('#wbStop').onclick = () => { if (wbId) fetch(`/api/workbenches/${wbId}/stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); };
+$('#wbBuild').onclick = async () => {
+  if (!wbId) return;
+  const text = $('#wbInput').value.trim();
+  if (!text) return appendWbError('把任务写在输入框里，再点「动手」');
+  const checked = [...$('#wbRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
+  const capable = (wbInfo?.writeCapable ?? []);
+  if (checked.length !== 1) return appendWbError('动手需要恰好勾选一位模型（标注「可动手」的）');
+  if (!capable.includes(checked[0])) return appendWbError('勾选的模型不支持动手——请选标注「可动手」的模型');
+  $('#wbInput').value = '';
+  let r;
+  try { r = await (await fetch(`/api/workbenches/${wbId}/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, agentId: checked[0] }) })).json(); }
+  catch (e) { return appendWbError('网络错误: ' + e.message); }
+  if (r.error) appendWbError(r.error);
+};
 $('#wbInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendWbMessage(); }
 });

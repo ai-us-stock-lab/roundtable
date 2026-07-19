@@ -26,6 +26,20 @@ export function deriveSessionAgents(agents, ids, workspace) {
   return out;
 }
 
+// 写模式配置：仅显式声明 writeArgs（安全写参数）的引擎可「动手」；
+// cwd 不在此设置——每次动手时由 Workbench 注入隔离副本目录
+export function deriveWriteAgents(agents, ids) {
+  const out = {};
+  for (const id of new Set(ids)) {
+    const a = agents[id];
+    if (!a || a.unavailable || !a.writeArgs) continue;
+    const c = structuredClone(a);
+    c.command = [c.command[0], ...c.writeArgs];
+    out[id] = c;
+  }
+  return out;
+}
+
 export async function startServer({ port = 7777, agentsFile = 'adapters/agents.json', templatesDir = 'templates', sessionsDir = 'sessions' } = {}) {
   const agents = JSON.parse(await readFile(agentsFile, 'utf8'));
   // 启动时解析每个 agent 的 CLI 路径；解析失败不阻塞服务启动，只标记该 agent 不可用
@@ -293,10 +307,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
           if (agents[id].unavailable) return json(res, 400, { error: `${agents[id].name} 当前不可用: ${agents[id].unavailable}` });
         }
+        const wbWorkspace = String(body.workspace ?? '').trim();
+        if (wbWorkspace && !existsSync(wbWorkspace)) return json(res, 400, { error: '项目目录不存在: ' + wbWorkspace });
         const entry = newBenchEntry();
         const bench = new Workbench({
-          name: String(body.name ?? '').trim(), agents: deriveSessionAgents(agents, participants, ''),
+          name: String(body.name ?? '').trim(),
+          agents: deriveSessionAgents(agents, participants, wbWorkspace), // 挂了目录则聊天也可只读查阅
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev),
+          workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants),
         });
         await bench.init();
         entry.bench = bench;
@@ -312,21 +330,45 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
         for (const e of benches.values()) if (e.bench.dir && path.basename(e.bench.dir) === dirname) return json(res, 409, { error: '该工作台已在进行中' });
         const dir = path.join(sessionsDir, dirname);
-        const { meta, messages } = await loadWorkbenchFromDisk(dir);
+        const { meta, messages, builds } = await loadWorkbenchFromDisk(dir);
         const participants = (meta.participants ?? []).filter(x => agents[x]);
         if (!participants.length) return json(res, 400, { error: '该工作台的参与模型已全部从配置中移除' });
+        const wbWorkspace = String(meta.workspace ?? '');
         const entry = newBenchEntry();
         const bench = await Workbench.resume({
-          name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, ''),
+          name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, wbWorkspace),
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
+          workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants), builds,
         });
         entry.bench = bench;
-        // 合成事件回放：重建聊天记录
-        for (const msg of messages) entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}) });
+        // 合成事件回放：重建聊天记录（含动手 diff 卡片——patch 从会话目录读回）
+        for (const msg of messages) {
+          let build;
+          if (msg.build) {
+            const rec = builds.find(x => x.buildId === msg.build);
+            if (rec) {
+              let patch = '';
+              try { patch = (await readFile(bench.patchPathOf(msg.build), 'utf8')).slice(0, 200000); } catch { /* patch 文件缺失则只展示统计 */ }
+              build = { buildId: rec.buildId, stat: rec.stat, status: rec.status, patch };
+            }
+          }
+          entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}), ...(build ? { build } : {}) });
+        }
         entry.events.push({ type: 'state', data: 'idle' });
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         benches.set(id, entry);
         return json(res, 200, { id });
+      }
+      // 动手 diff 的审批（应用/丢弃）——嵌套路径，先于工作台通配匹配
+      const wbBuild = url.pathname.match(/^\/api\/workbenches\/([a-z0-9]+)\/builds\/([a-z0-9]+)\/(apply|discard)$/);
+      if (wbBuild && req.method === 'POST') {
+        const entry = benches.get(wbBuild[1]);
+        if (!entry) return json(res, 404, { error: '工作台不存在' });
+        try {
+          if (wbBuild[3] === 'apply') await entry.bench.applyBuild(wbBuild[2]);
+          else await entry.bench.discardBuild(wbBuild[2]);
+          return json(res, 200, { ok: true });
+        } catch (e) { return json(res, 400, { error: String(e.message ?? e) }); }
       }
       const wb = url.pathname.match(/^\/api\/workbenches\/([a-z0-9]+)(\/([a-z-]+))?$/);
       if (wb) {
@@ -337,6 +379,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return json(res, 200, {
             name: b.name, state: b.state, participants: b.participants,
             agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
+            workspace: b.workspace, writeCapable: Object.keys(b.writeAgents),
           });
         if (!action && req.method === 'DELETE') {
           for (const client of entry.clients) { try { client.end(); } catch { /* 已断开 */ } }
@@ -363,6 +406,15 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
           const to = (Array.isArray(body.to) ? body.to : []).filter(x => b.participants.includes(x));
           b.message(text, to).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
+          return json(res, 200, { ok: true });
+        }
+        if (action === 'build') {
+          const text = String(body.text ?? '').trim();
+          const agentId = String(body.agentId ?? '');
+          if (!text) return json(res, 400, { error: '任务不能为空' });
+          if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          if (!b.writeAgents[agentId]) return json(res, 400, { error: '该模型不支持动手' });
+          b.build(text, agentId).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
           return json(res, 200, { ok: true });
         }
         if (action === 'relay') {

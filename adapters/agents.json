@@ -41,6 +41,14 @@
       "--verbose",
       "--disallowedTools",
       "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task"
+    ],
+    "writeArgs": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--disallowedTools",
+      "Bash,NotebookEdit,WebFetch,WebSearch,Task"
     ]
   },
   "codex": {
@@ -50,6 +58,12 @@
       "exec",
       "--sandbox",
       "read-only",
+      "--ephemeral"
+    ],
+    "writeArgs": [
+      "exec",
+      "--sandbox",
+      "workspace-write",
       "--ephemeral"
     ],
     "commandEnvVar": "CODEX_CLI_PATH",

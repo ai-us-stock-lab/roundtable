@@ -67,6 +67,7 @@
       <p class="hint">多模型群聊：随时提问、点名任意模型接力讨论；聊到需要正式对撞时，一键升格为委员会会议。</p>
       <div id="wbSetupBar" hidden></div>
       <input id="wbName" placeholder="给这个工作台起个名（可选）">
+      <input id="wbWorkspace" placeholder="项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）">
       <div id="wbParticipants"></div>
       <button id="wbCreate" class="primary">开聊</button>
     </section>
@@ -82,6 +83,7 @@
         <textarea id="wbInput" placeholder="发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）"></textarea>
         <div id="wbActions">
           <span id="wbRelayCtl"><button id="wbRelay" title="让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束">让他们讨论</button><label>× <input id="wbRounds" type="number" min="1" max="8" value="2"> 轮</label></span>
+          <button id="wbBuild" hidden title="把输入框内容作为任务，交给勾选的那一个模型在隔离副本里真实改文件；产出 diff 由你审批后才落地">动手</button>
           <button id="wbStop" hidden>停止</button>
           <button id="wbSend" class="primary">发送</button>
         </div>

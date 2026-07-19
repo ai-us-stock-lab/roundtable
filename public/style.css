@@ -315,6 +315,22 @@ details.section[open] > summary { margin-bottom: 4px; }
 #wbSend { margin-left: auto; padding: 8px 24px; }
 .wb-sys { align-self: center; font-size: 12px; color: var(--dim); padding: 2px 10px; }
 
+/* 动手 diff 卡片：审批是一等公民 */
+.build-card { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); overflow: hidden; }
+.build-stat { margin: 0; padding: 8px 10px; font: 12px/1.6 Consolas, monospace; color: var(--dim); white-space: pre-wrap; border-bottom: 1px solid var(--line); }
+.build-card details > summary { cursor: pointer; font-size: 12.5px; color: var(--accent); padding: 6px 10px; list-style: none; }
+.build-card details > summary::before { content: "▸ "; }
+.build-card details[open] > summary::before { content: "▾ "; }
+.build-patch { margin: 0; padding: 8px 10px; font: 12px/1.55 Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 50vh; overflow-y: auto; border-top: 1px solid var(--line); }
+.dl-add { color: var(--ok); }
+.dl-del { color: var(--err); }
+.dl-meta { color: var(--accent); }
+.build-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.build-bar button { font-size: 12.5px; padding: 4px 14px; }
+.build-status { font-size: 12px; color: var(--dim); margin-left: auto; }
+.build-status[data-st="applied"] { color: var(--ok); font-weight: 600; }
+#wbBuild { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); font-weight: 600; }
+
 /* ============ 归档只读视图 ============ */
 #archiveView { max-width: 880px; margin: 0 auto; padding: 20px; width: 100%; }
 #archiveBar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }

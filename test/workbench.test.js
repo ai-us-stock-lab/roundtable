@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -250,4 +250,79 @@ test('server: 重命名——活动工作台 / 归档目录（含工作台前缀
     assert.equal(item.topic, '[工作台] 归档新名'); // 工作台前缀自动保留
     assert.equal(item.type, 'workbench');
   } finally { srv.close(); }
+});
+
+// ---- 动手（写模式）----
+const { execFileSync } = await import('node:child_process');
+function makeWorkspaceRepo() {
+  const dir = mkdtempSync(path.join(tmpdir(), 'wb-ws-'));
+  const g = (...a) => execFileSync('git', ['-C', dir, ...a], { windowsHide: true });
+  g('init'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
+  writeFileSync(path.join(dir, 'readme.md'), 'hello\n');
+  g('add', '-A'); g('commit', '-m', 'init');
+  return dir;
+}
+// 假写手：在 cwd（隔离副本）里真实创建文件并输出说明
+const WRITE_AGENT = {
+  name: 'Builder',
+  command: [process.execPath, '-e', "require('fs').writeFileSync('from-agent.txt','built by agent'); console.log('added from-agent.txt')"],
+  input: 'stdin', output: 'text', timeoutMs: 10000,
+  envWhitelist: ['PATH', 'SYSTEMROOT'], cwd: process.cwd(),
+};
+
+test('build: 副本动手 → diff 卡片 → 主工作区零接触 → 应用生效', async () => {
+  const workspace = makeWorkspaceRepo();
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-build-'));
+  const events = [];
+  const w = new Workbench({
+    name: '动手台', agents: MOCK_AGENTS(), participants: ['m1'], baseDir,
+    emit: e => events.push(e), workspace, writeAgents: { m1: WRITE_AGENT },
+  });
+  await w.init();
+  await w.build('把 from-agent.txt 加进去', 'm1');
+
+  // 消息：用户指令 + 模型说明（带 build 标记）
+  assert.equal(w.messages.length, 2);
+  assert.equal(w.messages[1].text, 'added from-agent.txt');
+  assert.ok(w.messages[1].build);
+  // build 记录与 patch 落盘
+  assert.equal(w.builds.length, 1);
+  assert.equal(w.builds[0].status, 'pending');
+  assert.match(w.builds[0].stat, /from-agent\.txt/);
+  assert.ok(existsSync(w.patchPathOf(w.builds[0].buildId)));
+  // 事件带 diff 卡片数据
+  const card = events.find(e => e.type === 'chat-message' && e.build);
+  assert.match(card.build.patch, /built by agent/);
+  // 主工作区此刻零接触
+  assert.ok(!existsSync(path.join(workspace, 'from-agent.txt')));
+
+  // 应用 → 文件出现在主工作区
+  await w.applyBuild(w.builds[0].buildId);
+  assert.equal(w.builds[0].status, 'applied');
+  assert.match(readFileSync(path.join(workspace, 'from-agent.txt'), 'utf8'), /built by agent/);
+  // 重复应用被拒
+  await assert.rejects(() => w.applyBuild(w.builds[0].buildId), /已应用/);
+});
+
+test('build: 丢弃只标记状态，主工作区不变；守卫齐全', async () => {
+  const workspace = makeWorkspaceRepo();
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-build2-'));
+  const w = new Workbench({
+    name: 'g', agents: MOCK_AGENTS(), participants: ['m1', 'm2'], baseDir,
+    emit: () => {}, workspace, writeAgents: { m1: WRITE_AGENT },
+  });
+  await w.init();
+  await w.build('动手', 'm1');
+  await w.discardBuild(w.builds[0].buildId);
+  assert.equal(w.builds[0].status, 'discarded');
+  assert.ok(!existsSync(path.join(workspace, 'from-agent.txt')));
+  // 无写能力模型被拒
+  await assert.rejects(() => w.build('x', 'm2'), /不支持动手/);
+  // 非 git 目录被拒
+  const w2 = new Workbench({ name: 'x', agents: MOCK_AGENTS(), participants: ['m1'], baseDir, emit: () => {}, workspace: mkdtempSync(path.join(tmpdir(), 'wb-plain-')), writeAgents: { m1: WRITE_AGENT } });
+  await w2.init();
+  await assert.rejects(() => w2.build('x', 'm1'), /不是 git 仓库/);
+  // 恢复时 builds 读回
+  const { builds } = await loadWorkbenchFromDisk(w.dir);
+  assert.equal(builds[0].status, 'discarded');
 });
