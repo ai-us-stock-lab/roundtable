@@ -3,98 +3,102 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Roundtable 决策委员会</title>
+<title>Roundtable</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div id="layout">
   <aside id="sidebar">
-    <div id="brand">Round<b>table</b></div>
-    <button id="newSessionBtn">+ 会议</button>
-    <button id="newBenchBtn">+ 工作台</button>
+    <div id="brandRow">
+      <div id="brand">Round<b>table</b></div>
+      <button id="langToggle" title="Switch to English">EN</button>
+    </div>
+    <button id="newSessionBtn" data-i18n="sidebar.newMeeting">+ 会议</button>
+    <button id="newBenchBtn" data-i18n="sidebar.newWorkbench">+ 工作台</button>
     <div id="sessionList"></div>
   </aside>
   <div id="mainContent">
     <section id="setup">
-      <h1>发起一场会议</h1>
+      <h1 data-i18n="setup.title">发起一场会议</h1>
       <div id="setupbar" hidden></div>
-      <textarea id="topic" placeholder="议题：要决策什么？"></textarea>
-      <textarea id="materials" placeholder="背景材料（可选）"></textarea>
-      <input id="workspace" placeholder="项目目录（可选，绝对路径——参会 AI 将可只读查阅该目录下的文件）">
+      <textarea id="topic" data-i18n-ph="setup.topicPh" placeholder="议题：要决策什么？"></textarea>
+      <textarea id="materials" data-i18n-ph="setup.materialsPh" placeholder="背景材料（可选）"></textarea>
+      <input id="workspace" data-i18n-ph="setup.workspacePh" placeholder="项目目录（可选，绝对路径——参会 AI 将可只读查阅该目录下的文件）">
       <div id="lineup">
-        <label>模板 <select id="tpl"></select></label>
-        <label>辩手 A <select id="debA"></select></label>
-        <label>辩手 B <select id="debB"></select></label>
-        <label>仲裁 <select id="judge"></select></label>
-        <label title="每轮把双方发言整理成滚动摘要与分歧分类表的角色">书记（摘要） <select id="summ"></select></label>
+        <label><span data-i18n="setup.template">模板</span> <select id="tpl"></select></label>
+        <label><span data-i18n="setup.debaterA">辩手 A</span> <select id="debA"></select></label>
+        <label><span data-i18n="setup.debaterB">辩手 B</span> <select id="debB"></select></label>
+        <label><span data-i18n="setup.judge">仲裁</span> <select id="judge"></select></label>
+        <label data-i18n-title="setup.scribeTitle" title="每轮把双方发言整理成滚动摘要与分歧分类表的角色"><span data-i18n="setup.scribe">书记（摘要）</span> <select id="summ"></select></label>
       </div>
-      <button id="start" class="primary">开始第 1 轮（clean room）</button>
+      <button id="start" class="primary" data-i18n="setup.start">开始第 1 轮（clean room）</button>
     </section>
     <main id="arena" hidden>
       <div class="col side-a" id="colA"><h2><span class="name"></span> <span class="badge"></span><span class="roundnav"></span>
-        <span class="colactions"><button class="retry">重试</button><button class="skip">跳过</button></span></h2><div class="feed"></div></div>
+        <span class="colactions"><button class="retry" data-i18n="arena.retry">重试</button><button class="skip" data-i18n="arena.skip">跳过</button></span></h2><div class="feed"></div></div>
       <div class="col mid">
         <div id="brief" hidden>
           <div id="briefTopic"></div>
-          <details id="briefDetails"><summary>议题与背景材料</summary><pre id="briefMaterials"></pre></details>
+          <details id="briefDetails"><summary data-i18n="arena.brief">议题与背景材料</summary><pre id="briefMaterials"></pre></details>
         </div>
         <div id="statebar"></div>
         <div id="summary"></div>
-        <button id="resummarize" hidden>重新生成本轮摘要</button>
-        <div id="judgecard" hidden><h3>裁决卡</h3><pre></pre><button id="copycard">复制</button> <button id="flowback" class="accent-outline" hidden title="把裁决卡作为一条消息贴回升格前的工作台，接着聊">回流到来源工作台</button></div>
+        <button id="resummarize" hidden data-i18n="arena.resummarize">重新生成本轮摘要</button>
+        <div id="judgecard" hidden><h3 data-i18n="arena.verdict">裁决卡</h3><pre></pre><button id="copycard" data-i18n="arena.copy">复制</button> <button id="flowback" class="accent-outline" hidden data-i18n="arena.flowback" data-i18n-title="arena.flowbackTitle" title="把裁决卡作为一条消息贴回升格前的工作台，接着聊">回流到来源工作台</button></div>
         <details id="chatPanel">
-          <summary title="展开/收起群聊">群聊</summary>
-          <div class="chat-head">群聊 <span>基于本场会议上下文，与参会 AI 讨论</span></div>
+          <summary data-i18n="arena.groupChat" data-i18n-title="arena.groupChatToggle" title="展开/收起群聊">群聊</summary>
+          <div class="chat-head"><span data-i18n="arena.groupChat">群聊</span> <span data-i18n="arena.groupChatHint">基于本场会议上下文，与参会 AI 讨论</span></div>
           <div id="chatLog"></div>
           <div id="chatBar">
             <div id="chatRecipients"></div>
-            <textarea id="chatInput" placeholder="和参会 AI 自由讨论……（Ctrl+Enter 发送）"></textarea>
-            <button id="chatSend">发送</button>
+            <textarea id="chatInput" data-i18n-ph="arena.chatInputPh" placeholder="和参会 AI 自由讨论……（Ctrl+Enter 发送）"></textarea>
+            <button id="chatSend" data-i18n="arena.send">发送</button>
           </div>
         </details>
-        <textarea id="note" placeholder="主持人插话（进入下一轮双方简报）"></textarea>
+        <textarea id="note" data-i18n-ph="arena.notePh" placeholder="主持人插话（进入下一轮双方简报）"></textarea>
         <div id="controls">
-          <button id="next" class="primary">下一轮</button><button id="auto">自动跑完</button><label class="autoN">至多 <input id="maxR" type="number" min="1" max="10" value="4"> 轮</label>
-          <button id="stop">停止当前轮</button><button id="dojudge" class="accent-outline">进入裁决</button>
-          <button id="partial">保存半成品</button>
+          <button id="next" class="primary" data-i18n="arena.nextRound">下一轮</button><button id="auto" data-i18n="arena.auto">自动跑完</button><label class="autoN"><span data-i18n="arena.upTo">至多</span> <input id="maxR" type="number" min="1" max="10" value="4"> <span data-i18n="arena.rounds">轮</span></label>
+          <button id="stop" data-i18n="arena.stopRound">停止当前轮</button><button id="dojudge" class="accent-outline" data-i18n="arena.goVerdict">进入裁决</button>
+          <button id="partial" data-i18n="arena.savePartial">保存半成品</button>
         </div>
       </div>
       <div class="col side-b" id="colB"><h2><span class="name"></span> <span class="badge"></span><span class="roundnav"></span>
-        <span class="colactions"><button class="retry">重试</button><button class="skip">跳过</button></span></h2><div class="feed"></div></div>
+        <span class="colactions"><button class="retry" data-i18n="arena.retry">重试</button><button class="skip" data-i18n="arena.skip">跳过</button></span></h2><div class="feed"></div></div>
     </main>
     <section id="wbSetup" hidden>
-      <h1>开一个工作台</h1>
-      <p class="hint">多模型群聊：随时提问、点名任意模型接力讨论；聊到需要正式对撞时，一键升格为委员会会议。</p>
+      <h1 data-i18n="wbSetup.title">开一个工作台</h1>
+      <p class="hint" data-i18n="wbSetup.hint">多模型群聊：随时提问、点名任意模型接力讨论；聊到需要正式对撞时，一键升格为委员会会议。</p>
       <div id="wbSetupBar" hidden></div>
-      <input id="wbName" placeholder="给这个工作台起个名（可选）">
-      <input id="wbWorkspace" placeholder="项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）">
+      <input id="wbName" data-i18n-ph="wbSetup.namePh" placeholder="给这个工作台起个名（可选）">
+      <input id="wbWorkspace" data-i18n-ph="wbSetup.workspacePh" placeholder="项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）">
       <div id="wbParticipants"></div>
-      <button id="wbCreate" class="primary">开聊</button>
+      <button id="wbCreate" class="primary" data-i18n="wbSetup.create">开聊</button>
     </section>
     <section id="workbench" hidden>
       <div id="wbHead">
         <strong id="wbTitle"></strong>
         <span id="wbMembers"></span>
-        <button id="wbPromote" class="accent-outline" title="把这段讨论打包成会议草稿，开一场正式委员会">升格为会议</button>
+        <button id="wbPromote" class="accent-outline" data-i18n="wb.promote" data-i18n-title="wb.promoteTitle" title="把这段讨论打包成会议草稿，开一场正式委员会">升格为会议</button>
       </div>
       <div id="wbLog"></div>
       <div id="wbBar">
         <div id="wbRecipients"></div>
-        <textarea id="wbInput" placeholder="发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）"></textarea>
+        <textarea id="wbInput" data-i18n-ph="wb.inputPh" placeholder="发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）"></textarea>
         <div id="wbActions">
-          <span id="wbRelayCtl"><button id="wbRelay" title="让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束">让他们讨论</button><label>× <input id="wbRounds" type="number" min="1" max="8" value="2"> 轮</label></span>
-          <button id="wbBuild" hidden title="把输入框内容作为任务，交给勾选的那一个模型在隔离副本里真实改文件；产出 diff 由你审批后才落地">动手</button>
-          <button id="wbStop" hidden>停止</button>
-          <button id="wbSend" class="primary">发送</button>
+          <span id="wbRelayCtl"><button id="wbRelay" data-i18n="wb.relay" data-i18n-title="wb.relayTitle" title="让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束">让他们讨论</button><label>× <input id="wbRounds" type="number" min="1" max="8" value="2"> <span data-i18n="arena.rounds">轮</span></label></span>
+          <button id="wbBuild" hidden data-i18n="wb.build" data-i18n-title="wb.buildTitle" title="把输入框内容作为任务，交给勾选的那一个模型在隔离副本里真实改文件；产出 diff 由你审批后才落地">动手</button>
+          <button id="wbStop" hidden data-i18n="wb.stop">停止</button>
+          <button id="wbSend" class="primary" data-i18n="wb.send">发送</button>
         </div>
       </div>
     </section>
     <section id="archiveView" hidden>
-      <div id="archiveBar"><button id="archiveBack">← 返回</button> <strong id="archiveTopic"></strong> <button id="archiveResume" class="accent-outline">恢复此会话</button></div>
+      <div id="archiveBar"><button id="archiveBack" data-i18n="archive.back">← 返回</button> <strong id="archiveTopic"></strong> <button id="archiveResume" class="accent-outline" data-i18n="archive.resume">恢复此会话</button></div>
       <pre id="archiveContent"></pre>
     </section>
   </div>
 </div>
+<script src="/i18n.js"></script>
 <script src="/app-core.js"></script>
 <script src="/app-committee.js"></script>
 <script src="/app-workbench.js"></script>

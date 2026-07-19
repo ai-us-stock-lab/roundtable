@@ -7,7 +7,7 @@ let typingEls = {};     // agentId -> "正在输入…" 提示元素（群聊）
 
 const api = (action, body) => fetch(`/api/sessions/${sid}/${action}`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}),
-}).catch(e => setStatebar('网络错误: ' + e.message, true));
+}).catch(e => setStatebar(t('dyn.netErr', { msg: e.message }), true));
 
 // 项目对话侧的 AI 通过 POST /api/draft 预存议题+简报，并打开 /#draft=<id>——这里取回填入表单
 async function applyDraftFromHash() {
@@ -15,14 +15,14 @@ async function applyDraftFromHash() {
   if (!m) return;
   try {
     const d = await (await fetch('/api/draft/' + m[1])).json();
-    if (d.error) return setStatebar('预填草稿已过期，请手动填写议题', true);
+    if (d.error) return setStatebar(t('dyn.draftExpired'), true);
     $('#topic').value = d.topic ?? '';
     $('#materials').value = d.materials ?? '';
     // 发起方建议的模板也一并选好（例如项目会诊）——模板选错会导致顾问输出结构完全不对题
     if (d.template && [...$('#tpl').options].some(o => o.value === d.template)) $('#tpl').value = d.template;
     if (d.workspace) $('#workspace').value = d.workspace;
     draftOrigin = d.originBench ?? null;
-    setStatebar('议题、背景材料与模板已由项目对话预填——选好阵容后点「开始第 1 轮」');
+    setStatebar(t('dyn.draftFilled'));
   } catch { /* 服务波动时静默，用户可手动填 */ }
   history.replaceState(null, '', location.pathname); // 用后清掉 hash，防刷新重复提示
 }
@@ -32,10 +32,10 @@ function badge(side) { return $(side === 'A' ? '#colA .badge' : '#colB .badge');
 
 function startBadgeTimer(side) {
   const t0 = Date.now();
-  badge(side).textContent = 'running · 0s';
+  badge(side).textContent = t('dyn.running', { t: '0s' });
   badgeTimers[side] = setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
-    badge(side).textContent = 'running · ' + (s >= 60 ? Math.floor(s / 60) + 'm' + (s % 60) + 's' : s + 's');
+    badge(side).textContent = t('dyn.running', { t: (s >= 60 ? Math.floor(s / 60) + 'm' + (s % 60) + 's' : s + 's') });
   }, 1000);
 }
 function stopBadgeTimer(side) { if (badgeTimers[side]) { clearInterval(badgeTimers[side]); delete badgeTimers[side]; } }
@@ -57,8 +57,8 @@ function ensureRoundDiv(side, label) {
     // 栏头加该轮的快速跳转按钮（栏头是 sticky 的，按钮始终可见）
     const nav = $(side === 'A' ? '#colA .roundnav' : '#colB .roundnav');
     const btn = document.createElement('button');
-    btn.textContent = label.replace(/[第轮\s]/g, ''); // 「第 2 轮」→「2」
-    btn.title = '跳转到' + label;
+    btn.textContent = label.replace(/\D/g, '') || label; // 「第 2 轮」/「Round 2」→「2」
+    btn.title = t('dyn.jumpTo', { label });
     btn.onclick = () => { d.open = true; d.scrollIntoView({ block: 'start' }); }; // 不用 smooth：部分环境平滑滚动不执行
     nav.appendChild(btn);
   }
@@ -108,7 +108,7 @@ function sectionizeRound(side, label) {
 
 const isDebaterCall = label => /^r\d+(retry)?$/.test(label ?? ''); // r1、r2retry 等辩手轮次调用；r1summary/judge 等不路由进辩手栏
 // 从 label（r1 / r2retry 等）解析轮次标题；retry 与初次调用同轮号 → 落入同一个 round div（追加而非新建）
-const roundTitleOf = label => { const m = /^r(\d+)/.exec(label ?? ''); return m ? `第 ${m[1]} 轮` : (label ?? ''); };
+const roundTitleOf = label => { const m = /^r(\d+)/.exec(label ?? ''); return m ? t('dyn.roundTitle', { n: m[1] }) : (label ?? ''); };
 
 // ---- 会话内群聊 ----
 const isChatCall = label => /^chat\d+$/.test(label ?? '');
@@ -118,7 +118,7 @@ function showTyping(agentId) {
   const name = cfg.agents[agentId]?.name ?? agentId;
   const div = document.createElement('div');
   div.className = 'chat-msg chat-agent chat-typing';
-  div.textContent = name + ' 正在输入…';
+  div.textContent = t('dyn.typing', { name });
   $('#chatLog').appendChild(div);
   typingEls[agentId] = div;
   $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
@@ -193,20 +193,21 @@ function onEvent(ev) {
       }
     } else if (ev.label === 'judge') {
       // 仲裁运行时显示身份（此前只有干巴巴的 judging 状态）
-      if (ev.data === 'running') setStatebar('仲裁（' + name + '）正在裁决——比较证据强弱与证伪点质量…');
+      if (ev.data === 'running') setStatebar(t('dyn.judgeRunning', { name }));
     } else if (/summary$/.test(ev.label ?? '')) {
-      if (ev.data === 'running') setStatebar('书记（' + name + '）正在整理本轮摘要与分歧分类表…');
+      if (ev.data === 'running') setStatebar(t('dyn.scribeRunning', { name }));
     } else if (isChatCall(ev.label)) {
       if (ev.data === 'running') showTyping(ev.agentId); else hideTyping(ev.agentId); // 消息本身由 chat-message 事件追加，失败则由 error 事件提示
     }
   }
   if (ev.type === 'chat-message') appendChatMessage(ev.from, ev.name, ev.data);
   if (ev.type === 'summary') { $('#summary').textContent = ev.data; $('#resummarize').hidden = !/摘要失败/.test(ev.data); }
-  if (ev.type === 'round-done') { setStatebar('第 ' + ev.round + ' 轮结束——可插话后继续'); refreshSessionList(); }
-  if (ev.type === 'state') setStatebar('状态: ' + ev.data);
+  if (ev.type === 'round-done') { setStatebar(t('dyn.roundDone', { round: ev.round })); refreshSessionList(); }
+  if (ev.type === 'state') setStatebar(t('dyn.state', { data: ev.data }));
   if (ev.type === 'error') {
-    const hint = ev.data === 'auth' ? '（请在终端重新登录该 CLI 后点「重试」）' : '';
-    setStatebar('错误' + (ev.agentId ? '（' + (cfg.agents[ev.agentId]?.name ?? ev.agentId) + '）' : '') + ': ' + ev.data + hint, true);
+    const hint = ev.data === 'auth' ? t('dyn.authHint') : '';
+    const nm = ev.agentId ? (cfg.agents[ev.agentId]?.name ?? ev.agentId) : '';
+    setStatebar((ev.agentId ? t('dyn.errWith', { name: nm, msg: ev.data }) : t('dyn.errPlain', { msg: ev.data })) + hint, true);
   }
   if (ev.type === 'judge-card') {
     $('#judgecard').hidden = false;
@@ -225,7 +226,7 @@ async function sendNote() {
 function setBrief(topic, materials) {
   $('#brief').hidden = false;
   $('#briefTopic').textContent = topic ?? '';
-  $('#briefMaterials').textContent = (materials ?? '').trim() || '（无背景材料）';
+  $('#briefMaterials').textContent = (materials ?? '').trim() || t('arena.noMaterials');
   $('#briefDetails').open = false;
 }
 
@@ -256,13 +257,13 @@ function connectEvents() {
   closeEvents();
   es = new EventSource(`/api/sessions/${sid}/events`);
   es.onmessage = e => onEvent(JSON.parse(e.data));
-  es.onerror = () => setStatebar('事件流连接中断', true);
+  es.onerror = () => setStatebar(t('dyn.streamBrokenShort'), true);
 }
 
 // ---- 重连活动会话 ----
 async function attach(id) {
   let detail;
-  try { detail = await (await fetch(`/api/sessions/${id}`)).json(); } catch (e) { return setStatebar('无法连接服务: ' + e.message, true); }
+  try { detail = await (await fetch(`/api/sessions/${id}`)).json(); } catch (e) { return setStatebar(t('dyn.noServer', { msg: e.message }), true); }
   if (detail.error) return setStatebar(detail.error, true);
   closeWbEvents();
   resetSessionUI();
@@ -281,7 +282,7 @@ async function attach(id) {
 // ---- 历史会话只读查看 ----
 async function openArchive(dirname) {
   let data;
-  try { data = await (await fetch(`/api/archive/${encodeURIComponent(dirname)}`)).json(); } catch (e) { return setStatebar('无法读取归档: ' + e.message, true); }
+  try { data = await (await fetch(`/api/archive/${encodeURIComponent(dirname)}`)).json(); } catch (e) { return setStatebar(t('dyn.readArchiveFail', { msg: e.message }), true); }
   if (data.error) return setStatebar(data.error, true);
   archiveDirname = dirname;
   showArchiveView(data.topic, data.sessionMd);
@@ -291,7 +292,7 @@ async function openArchive(dirname) {
 async function resumeSession(dirname) {
   let r;
   try { r = await (await fetch(`/api/archive/${encodeURIComponent(dirname)}/resume`, { method: 'POST' })).json(); }
-  catch (e) { return setStatebar('恢复失败: ' + e.message, true); }
+  catch (e) { return setStatebar(t('dyn.resumeFail', { msg: e.message }), true); }
   if (r.error) return setStatebar(r.error, true);
   await attach(r.id);
   await refreshSessionList();
@@ -303,13 +304,13 @@ $('#archiveResume').onclick = () => { if (archiveDirname) resumeSession(archiveD
 
 $('#start').onclick = async () => {
   const roles = { debaters: [$('#debA').value, $('#debB').value], judge: $('#judge').value, summarizer: $('#summ').value };
-  if (roles.debaters[0] === roles.debaters[1]) return setStatebar('两个辩手不能是同一个 agent', true);
-  if (!$('#topic').value.trim()) return setStatebar('请先填写议题', true);
+  if (roles.debaters[0] === roles.debaters[1]) return setStatebar(t('dyn.sameDebater'), true);
+  if (!$('#topic').value.trim()) return setStatebar(t('dyn.needTopic'), true);
   const btn = $('#start');
   btn.disabled = true;
   const oldLabel = btn.textContent;
-  btn.textContent = '正在创建会话…';
-  setStatebar('正在创建会话…');
+  btn.textContent = t('dyn.creatingBtn');
+  setStatebar(t('dyn.creating'));
   let r;
   try {
     r = await (await fetch('/api/sessions', {
@@ -319,7 +320,7 @@ $('#start').onclick = async () => {
   } catch (e) {
     btn.disabled = false;
     btn.textContent = oldLabel;
-    return setStatebar('无法连接服务（' + e.message + '）——请在 Roundtable 目录运行 npm start，然后刷新本页重试', true);
+    return setStatebar(t('dyn.createFail', { msg: e.message }), true);
   }
   btn.disabled = false;
   btn.textContent = oldLabel;
@@ -353,7 +354,7 @@ $('#chatSend').onclick = async () => {
   const text = $('#chatInput').value.trim();
   if (!text) return;
   const to = [...$('#chatRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
-  if (!to.length) return setStatebar('请至少勾选一位收件人', true);
+  if (!to.length) return setStatebar(t('dyn.needRecipient'), true);
   $('#chatInput').value = '';
   await api('chat', { text, to });
 };
@@ -364,7 +365,7 @@ $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre')
 $('#flowback').onclick = async () => {
   let r;
   try { r = await (await fetch(`/api/sessions/${sid}/flowback`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
-  catch (e) { return setStatebar('回流失败: ' + e.message, true); }
+  catch (e) { return setStatebar(t('dyn.flowbackFail', { msg: e.message }), true); }
   if (r.error) return setStatebar(r.error, true);
   await attachWorkbench(r.benchId); // 裁决卡已贴回，切到工作台接着聊
 };

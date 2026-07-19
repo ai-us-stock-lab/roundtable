@@ -11,6 +11,7 @@ import { resolveCliPath } from './resolve.js';
 const STATIC = {
   '/': ['public/index.html', 'text/html'],
   '/style.css': ['public/style.css', 'text/css'],
+  '/i18n.js': ['public/i18n.js', 'text/javascript'],
   '/app-core.js': ['public/app-core.js', 'text/javascript'],
   '/app-committee.js': ['public/app-committee.js', 'text/javascript'],
   '/app-workbench.js': ['public/app-workbench.js', 'text/javascript'],

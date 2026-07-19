@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "updated_on": "2026-07-20",
+  "resources": [
+    {
+      "type": "paid_api_subscription",
+      "name": "ElevenLabs",
+      "purpose": "Generate Chinese narration for docs/demo.mp4",
+      "environment": "scripts/demo",
+      "billing_cycle": "unknown",
+      "billing_cadence": "unknown",
+      "billing_amount": null,
+      "currency": null,
+      "renewal_or_next_charge_date": null,
+      "last_reviewed_on": "2026-07-20",
+      "owner": "user-managed",
+      "status": "configuration-required",
+      "safe_url": "https://elevenlabs.io/app/subscription",
+      "credential_ref": "env:ELEVENLABS_API_KEY",
+      "configuration_refs": [
+        "env:ELEVENLABS_VOICE_ID"
+      ]
+    }
+  ]
+}

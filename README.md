@@ -1,11 +1,130 @@
+# Roundtable — One Table for All Your AI CLIs
+
+**Group-chat your AI CLIs day to day; escalate to a structured debate committee when the decision matters.**
+
+![Roundtable demo](docs/demo.gif)
+
+[▶ Watch the 64s walkthrough](docs/demo.mp4) *(Chinese narration for now; English version coming)*
+
+> Rides your own CLI subscriptions (Claude Code / Codex / …) — zero marginal API cost, zero dependencies, all local. The UI ships in **English and 中文** (toggle in the top-left).
+
+*[中文说明见下方](#roundtable-多引擎圆桌) · Chinese version below.*
+
+Two rooms on one chassis:
+
+- **Workbench** (everyday): pick models and just chat. Unaddressed messages route to whoever spoke last; address one model or broadcast to all. Hit "let them talk" and the models take turns responding to each other for N rounds — encouraged to push back and question each other by name, auto-stopping when the discussion converges. Long histories are trimmed whole-message with a visible "this model only sees the last N messages" chip — never silently. One click promotes the chat into a formal committee meeting.
+- **Committee** (when it counts): when Claude Code says A and Codex says B, Roundtable runs a structured committee instead of letting you coin-flip:
+
+```
+independent takes (clean room) → cross-examination → disagreement classification → evidence-based judging → minimal next step
+```
+
+Round 1 is isolated so neither side anchors the other; later rounds attack each other's evidence; a scribe classifies every disagreement into 5 types (fact / assumption / framing / risk appetite / action); an independent judge (optionally a third engine) issues a structured verdict card. You are the moderator: pause between rounds, interject, retry, skip, or open a side-chat drawer with any participant.
+
+Zero dependencies — Node built-ins + vanilla frontend. No `npm install` needed.
+
+## Quick start (5 min)
+
+**Roundtable ships no AI of its own** — it drives the AI CLIs you already have installed and logged in, spending the subscription you already pay for (no extra API cost). So step one is confirming you have at least two working CLIs.
+
+### 1. Install and log in to at least two AI CLIs
+
+Four engines work out of the box (install any number — **≥2 lets you hold a meeting**; other CLIs plug in below):
+
+| Engine | Install | Verify it's installed & logged in |
+|---|---|---|
+| [Claude Code](https://claude.com/claude-code) | `npm i -g @anthropic-ai/claude-code`, then `claude` (guides you through login) | `claude -p "hi"` prints a reply |
+| [Codex](https://github.com/openai/codex) | `npm i -g @openai/codex`, then `codex` (first-run login) | `codex exec "hi"` prints a reply |
+| Gemini CLI / others | see their docs | you can chat in the terminal |
+
+**Key point: get those verify commands working in your own terminal first.** Roundtable just runs the same commands behind the scenes — if it fails in the terminal, it'll fail in Roundtable.
+
+### 2. Launch
+
+Node.js ≥ 20 (`node -v`). Zero dependencies — **no `npm install`**:
+
+```sh
+git clone https://github.com/ai-us-stock-lab/roundtable
+cd roundtable
+npm start        # opens http://127.0.0.1:7777
+```
+
+Engines that aren't installed/logged-in are **greyed out automatically**, so a missing one never blocks the rest.
+
+### 3. Try it
+
+- **Just chat** → **+ Workbench** → check two models → send. No recipient checked = goes to whoever spoke last; hit **Let them talk** to relay them.
+- **Let AI edit code** → mount a **git project dir** when creating the workbench → check a model marked "can build" → write the task, hit **Build** → it edits in an isolated copy and returns a diff → you Apply/Discard each file. **Nothing in your project changes until you apply.**
+- **A real decision** → **+ Meeting** → topic, two debaters + judge + scribe → full debate ending in a verdict card.
+
+### Troubleshooting
+
+- **An engine stays greyed out**: run its verify command from step 1 in your terminal. Usually it's not logged in, or not on PATH. On Windows, if a CLI lives in a non-standard place, set that engine's `command[0]` to an absolute path in `adapters/agents.json`.
+- **`npm start` says port in use**: a Roundtable is already running — just open http://127.0.0.1:7777.
+- **Only reachable locally**: by design — it binds `127.0.0.1` only; your session data never leaves the machine.
+
+Windows: double-click `open-roundtable.cmd` (health-check + start + open browser) instead of `npm start`; put a shortcut to `open-roundtable.vbs` in the Startup folder to keep it resident.
+
+## Features
+
+**Workbench (multi-model chat)**
+- No recipient checked → replies to whoever spoke last; check one to address, several to broadcast (serial, cost-controlled).
+- **Relay** — "Let them talk × N": models take turns, each sees the full labeled thread, pushes back and questions by name; stop anytime, auto-ends when talked out.
+- **Build (write mode)**: mount a git repo, pick one model, hit Build — it creates/edits files in an isolated **git worktree**, posts a per-file diff card; you **Apply / Discard** each. Your working tree is untouched until you apply; applies land in the tree and are **never auto-committed** (commit stays in your own git flow). Write access is narrowed: Claude runs file-tools-only (no Bash), Codex uses native `--sandbox workspace-write`.
+- **Run check** on a temp copy before applying; **session resume** so a model remembers files it already touched across builds.
+- **Promote to meeting** packages the chat into a committee draft (and the verdict can flow back).
+
+**Committee (structured debate)**
+- Three-column arena with streaming, collapsible rounds/sections, round jumps, run timers.
+- Rolling summary + 5-type disagreement table each round; a structured **verdict card** (adopt / key reasons / refuted claims / risks & hedges / minimal next step), one-click copy.
+- Read-only workspace mount so participants cite real code by file:line.
+- Session management: history, rename, reconnect-replay, cross-restart resume, archive view, soft-delete (recycle bin under `sessions/.trash/`).
+- Optional one-sentence launch: install `skills/roundtable-meeting/` into your Claude Code / Codex skills dir, then say "open a multi-agent meeting" in any coding chat.
+
+## Plug in any CLI
+
+Engines are declared in `adapters/agents.json` — no vendor is hard-coded:
+
+```jsonc
+{
+  "myai": {
+    "name": "MyAI",
+    "command": ["myai", "chat", "-q", "{PROMPT}"],  // argv array, never a shell string
+    "input": "arg",            // stdin | file | arg (file mode uses {PROMPT_FILE})
+    "output": "text",          // text | json | stream-json
+    "timeoutMs": 300000,
+    "envWhitelist": ["PATH", "USERPROFILE", "SYSTEMROOT"],  // subprocess sees only these
+    "cwd": "workdir",
+    "roles": ["debater", "judge", "summarizer"]
+  }
+}
+```
+
+- **Portable paths**: `command[0]` and args accept a `~/` prefix (expands to home); or use `commandEnvVar` / `commandFallbackGlob` (newest by mtime).
+- `{NONCE}` expands to a unique string per call (session key for stateful CLIs); `{PROMPT}` / `{PROMPT_FILE}` are the prompt placeholders; `dropLines` drops noise lines by regex; `workspaceArgs` swaps args when a project dir is mounted.
+- Validate an entry: `node scripts/smoke.js <id>`.
+- **Windows**: `.cmd/.bat` shims are auto-wrapped in `cmd /c` for stdin/file input; for **arg-mode** prompts containing newlines the `.cmd` wrap is refused (cmd.exe truncation / injection surface) — point such an engine's `command[0]` at a real `.exe` or node script.
+
+## Security
+
+- Localhost-only; also rejects non-loopback `Host` / `Origin` (DNS-rebinding & CSRF).
+- Env-var whitelisting — API keys never reach subprocesses unless whitelisted (caveat: a proxy URL with embedded credentials rides the whitelist).
+- Credential redaction on everything persisted.
+- Participants run read-only / tool-disabled where supported (Codex `--sandbox read-only --ephemeral`, Claude `--disallowedTools`).
+- Model output is displayed as text and **never executed**; prompts always go via argv array / stdin / temp file, never a concatenated shell string.
+- Write mode edits an isolated worktree; the diff lands in your working tree only after you approve, and `git apply` rejects path-traversal patches.
+
+Every meeting is fully replayable on disk under `sessions/`: problem statement, per-round prompts and raw outputs, rolling summaries with the disagreement table, the verdict card, and a full `session.md` transcript.
+
+License: MIT
+
+---
+
 # Roundtable 多引擎圆桌
 
 **让你手里的多个 AI CLI 坐到一张桌子上——日常在工作台随手群聊，重决策升格为有规矩的委员会辩论。**
 
-<!-- DEMO：录屏后把 GIF/视频放到这里，分镜见 docs/demo-storyboard.md
-![Roundtable demo](docs/demo.gif) -->
-
-> 骑你自己的 CLI 订阅（Claude Code / Codex / …），零边际 API 费；零依赖，全程本机。
+> 界面支持中英文切换（左上角切换）。
 
 两种房间，一套底盘：
 
@@ -102,7 +221,7 @@ Windows 用户可双击 `open-roundtable.cmd`（自动探活+起服务+开浏览
 - **互聊**：「让他们讨论 × N 轮」——模型按顺序接力发言，每位都看到完整讨论（含其他模型的标注发言），被鼓励点名反驳与追问；随时可停，模型回复【无新增】自动收敛终止
 - 长历史自动裁剪（整条消息取舍，绝不切半），裁剪时界面明示"该模型仅看到最近 N 条"——禁止静默截断
 - **动手（写模式）**：工作台挂载 git 项目目录后，勾选一位模型点「动手」——它在 **git worktree 隔离副本**里真实创建/修改文件，产出 diff 卡片贴回聊天；你逐个审批「应用到主工作区 / 丢弃」。主工作区在你点应用之前零接触；应用只落到工作树，commit 权始终在你自己的 git 流程里。写权限收窄：Claude 只开文件工具（禁 Bash），Codex 走原生 `--sandbox workspace-write`
-- **升格为会议**：一键把讨论打包成会议草稿，转入正式委员会流程
+- **升格为会议**：一键把讨论打包成会议草稿，转入正式委员会流程（裁决可回流）
 - 全程落盘（每条消息、每次调用的完整 prompt 与原始输出），跨重启恢复
 
 **会议（委员会辩论）**：
@@ -117,12 +236,12 @@ Windows 用户可双击 `open-roundtable.cmd`（自动探活+起服务+开浏览
 
 ## 安全模型
 
-- 服务只监听 `127.0.0.1`，无远程访问面
+- 服务只监听 `127.0.0.1`，并拒绝非回环 `Host` / `Origin`（防 DNS rebinding 与 CSRF）
 - 子进程环境变量白名单制——API key 等敏感变量默认全部隔离（注意：代理 URL 若内嵌凭据会随白名单传递，属已知权衡）
 - 所有落盘内容过凭据擦除（redaction）
 - 参会 CLI 尽量以只读/禁工具模式运行（Codex `--sandbox read-only --ephemeral`、Claude `--disallowedTools`）
-- 模型输出只作为文本展示，永不执行
-- prompt 永远走 argv 数组 / stdin / 临时文件，不拼 shell 字符串
+- 模型输出只作为文本展示，永不执行；prompt 永远走 argv 数组 / stdin / 临时文件，不拼 shell 字符串
+- 写模式改的是隔离副本，diff 经你审批才落到工作树；`git apply` 拒绝路径穿越 patch
 
 ## 会话产物（可复盘）
 
@@ -130,56 +249,6 @@ Windows 用户可双击 `open-roundtable.cmd`（自动探活+起服务+开浏览
 
 ---
 
-# Roundtable — One Table for All Your AI CLIs
-
-**Group-chat your AI CLIs day to day; escalate to a structured debate committee when the decision matters.**
-
-Two rooms on one chassis:
-
-- **Workbench** (everyday): pick models and just chat. Unaddressed messages route to whoever spoke last; address one model or broadcast to all. Hit "let them talk" and the models take turns responding to each other for N rounds — encouraged to push back and question each other by name, auto-stopping when the discussion converges. Long histories are trimmed whole-message with a visible "this model only sees the last N messages" chip — never silently. One click promotes the chat into a formal committee meeting.
-- **Committee** (when it counts): when Claude Code says A and Codex says B, Roundtable runs a structured committee instead of letting you coin-flip:
-
-```
-independent takes (clean room) → cross-examination → disagreement classification → evidence-based judging → minimal next step
-```
-
-Round 1 is isolated so neither side anchors the other; later rounds attack each other's evidence; a scribe classifies every disagreement into 5 types (fact / assumption / framing / risk appetite / action); an independent judge (optionally a third engine) issues a structured verdict card. You are the moderator: pause between rounds, interject, retry, skip, or open a side-chat drawer with any participant.
-
-Zero dependencies — Node built-ins + vanilla frontend. No `npm install` needed.
-
-**Roundtable ships no AI of its own** — it drives the AI CLIs you already have installed and logged in, spending the subscription you already pay for (no extra API cost).
-
-**Quick start**: Node ≥ 20 plus **at least two logged-in AI CLIs**. First confirm they work in your own terminal — Roundtable just runs the same commands behind the scenes:
-
-```sh
-claude -p "hi"          # Claude Code — should print a reply
-codex exec "hi"         # Codex — should print a reply
-```
-
-Then:
-
-```sh
-git clone https://github.com/ai-us-stock-lab/roundtable
-cd roundtable
-npm start        # open http://127.0.0.1:7777 — no npm install needed
-```
-
-Engines that aren't installed/logged-in are greyed out automatically, so a missing one never blocks the rest. On the page: **+ Workbench** to chat with several models (mount a git dir to let one "build" files behind diff-approval), or **+ Meeting** for a full clean-room debate ending in a verdict card.
-
-**Plug in any CLI** via `adapters/agents.json`: declare `command` as an argv array (never a shell string), pick `input` (stdin / file / arg) and `output` (text / json / stream-json), and whitelist env vars per engine. `~/` prefixes expand to the user home; `{NONCE}` expands to a unique string per call for stateful CLIs; `{PROMPT}` / `{PROMPT_FILE}` are the prompt placeholders. Validate an entry with `node scripts/smoke.js <id>`.
-
-**Security**: localhost-only; env-var whitelisting (API keys never reach subprocesses unless whitelisted); credential redaction on all persisted files; participants run in read-only / tool-disabled modes where supported; model output is displayed as text and never executed; on Windows, `.cmd` shims are refused for arg-mode prompts containing newlines (cmd.exe truncation / injection surface).
-
-Every meeting is fully replayable on disk under `sessions/`: problem statement, per-round prompts and raw outputs, rolling summaries with the disagreement table, the verdict card, and a full `session.md` transcript.
-
-Optional: install `skills/roundtable-meeting/` into your Claude Code / Codex skills directory to launch a meeting from any coding conversation with one sentence — the AI writes the briefing, prefills the form via `POST /api/draft`, and opens the browser; afterwards say "import the verdict" to bring the card back into your work.
-
-License: MIT
-
----
-
 ## 路线备忘（维护者）
 
-写模式（AI 改文件的 diff-only 桥接）当前不做。触发重新评估的硬阈值（三条件与门）：
-**连续 3-5 场真实会议中 ≥2 场出现「裁决被采纳 且 ≥50% 内容需改文件 且 手工落地 >15 分钟」**——
-数据来源为各场 `sessions/<dir>/outcome.md`，满足即重开会议评估写模式。
+写模式（AI 改文件的 diff-only 桥接）已上线（工作台「动手」）。其它待触发的债：委员会/工作台抽公共内核（出现第三形态时）、上下文滚动摘要（截断变频繁时）。数据来源为各场 `sessions/<dir>/outcome.md`。

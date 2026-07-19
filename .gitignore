@@ -4,3 +4,4 @@ sessions/*
 workdir/*
 !workdir/.gitkeep
 .claude/
+scripts/demo/.work/

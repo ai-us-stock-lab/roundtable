@@ -16,7 +16,7 @@ async function refreshSessionList() {
     item.className = 'session-item' + (s.archived ? ' archived' : '') + (!s.archived && (s.id === sid || s.id === wbId) ? ' active' : '');
     const title = document.createElement('div');
     title.className = 'session-title';
-    title.textContent = (s.topic || '（无议题）').replace(/^\[工作台\] /, '');
+    title.textContent = (s.topic || t('dyn.noTopic')).replace(/^\[工作台\] /, '');
     const meta = document.createElement('div');
     meta.className = 'session-meta';
     // 状态点（参考 super.engineering 侧栏行语义）：running/busy=accent 呼吸，done=绿，其余=灰
@@ -25,27 +25,28 @@ async function refreshSessionList() {
     dot.className = 'st-dot ' + (['running', 'busy', 'judging'].includes(st) ? 'st-live' : (st === 'done' ? 'st-done' : 'st-idle'));
     title.prepend(dot);
     const when = s.updatedAt ? ' · ' + fmtTime(s.updatedAt) : '';
+    const sep = ' · ';
     meta.textContent = (isWb
-      ? ('工作台 · ' + (s.archived ? '已归档' : (s.state === 'busy' ? '回复中' : '在线')) + ' · ' + (s.round ?? 0) + ' 条')
-      : (s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮'))) + when;
-    meta.title = s.updatedAt ? '最后更新：' + new Date(s.updatedAt).toLocaleString() : '';
+      ? (t('dyn.wbActive') + sep + (s.archived ? t('dyn.archived') : (s.state === 'busy' ? t('dyn.busy') : t('dyn.online'))) + sep + t('dyn.msgs', { n: s.round ?? 0 }))
+      : (s.archived ? (t('dyn.archived') + sep + (s.state ?? '')) : ((s.state ?? '') + sep + t('dyn.roundN', { n: s.round ?? 0 })))) + when;
+    meta.title = s.updatedAt ? t('dyn.updatedAt', { t: new Date(s.updatedAt).toLocaleString() }) : '';
     if (s.pending > 0) { // 待批 diff 徽章
       const badge = document.createElement('span');
       badge.className = 'pending-badge';
-      badge.textContent = '待批 ' + s.pending;
+      badge.textContent = t('dyn.pending', { n: s.pending });
       meta.appendChild(badge);
     }
     const del = document.createElement('button');
     del.className = 'session-del';
     del.textContent = '✕';
-    del.title = '删除该会话记录';
+    del.title = t('dyn.del');
     del.onclick = async e => {
       e.stopPropagation(); // 不触发条目本身的打开动作
-      if (!confirm('删除「' + (s.topic || '（无议题）') + '」？记录将移入回收站（sessions/.trash/），需要时可手工找回。')) return;
+      if (!confirm(t('dyn.delConfirm', { topic: s.topic || t('dyn.noTopic') }))) return;
       const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id)
         : (isWb ? '/api/workbenches/' + s.id : '/api/sessions/' + s.id);
       let r;
-      try { r = await (await fetch(url, { method: 'DELETE' })).json(); } catch (err) { return setStatebar('删除失败: ' + err.message, true); }
+      try { r = await (await fetch(url, { method: 'DELETE' })).json(); } catch (err) { return setStatebar(t('dyn.delFail', { msg: err.message }), true); }
       if (r.error) return setStatebar(r.error, true);
       if (!s.archived && s.id === sid) { closeEvents(); sid = null; resetSessionUI(); showSetup(); } // 删的是当前会话则回到建会话页
       if (!s.archived && s.id === wbId) { closeWbEvents(); showSetup(); }
@@ -56,20 +57,20 @@ async function refreshSessionList() {
     const ren = document.createElement('button');
     ren.className = 'session-rename';
     ren.textContent = '✎';
-    ren.title = '重命名';
+    ren.title = t('dyn.rename');
     // 归档的会议条目右侧还有 ↻ 恢复按钮，改名按钮再往左让一格
     ren.style.right = (s.archived && !isWb) ? '46px' : '26px';
     ren.onclick = async e => {
       e.stopPropagation();
       const current = (s.topic || '').replace(/^\[工作台\] /, '');
-      const name = prompt('新名字：', current);
+      const name = prompt(t('dyn.renamePrompt'), current);
       if (name === null || !name.trim() || name.trim() === current) return;
       const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id) + '/rename'
         : (isWb ? '/api/workbenches/' + s.id + '/rename' : '/api/sessions/' + s.id + '/rename');
       const body = isWb && !s.archived ? { name: name.trim() } : { title: name.trim() };
       let r;
       try { r = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json(); }
-      catch (err) { return setStatebar('重命名失败: ' + err.message, true); }
+      catch (err) { return setStatebar(t('dyn.renameFail', { msg: err.message }), true); }
       if (r.error) return setStatebar(r.error, true);
       if (!s.archived && isWb && s.id === wbId) $('#wbTitle').textContent = name.trim(); // 当前工作台标题同步
       await refreshSessionList();
@@ -79,7 +80,7 @@ async function refreshSessionList() {
       const resume = document.createElement('button');
       resume.className = 'session-resume';
       resume.textContent = '↻';
-      resume.title = '恢复此会话继续辩论';
+      resume.title = t('dyn.resumeTitle');
       resume.onclick = e => { e.stopPropagation(); resumeSession(s.id); };
       item.appendChild(resume);
     }
