@@ -7,8 +7,8 @@ import path from 'node:path';
 import * as store from './store.js';
 
 export class Committee {
-  constructor({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit }) {
-    Object.assign(this, { topic, materials, agents, roles, template, mode, maxRounds, baseDir });
+  constructor({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit, origin = '' }) {
+    Object.assign(this, { topic, materials, agents, roles, template, mode, maxRounds, baseDir, origin }); // origin=来源工作台目录名（升格而来时非空，裁决卡可回流）
     this.emit = emit ?? (() => {});
     this.state = 'created';
     this.round = 0;
@@ -24,8 +24,8 @@ export class Committee {
 
   // 从磁盘状态装配一个可继续辩论的 Committee：不新建目录（复用给定 dir），
   // 直接注入 round/history，state 置为 paused。调用方随后应 saveMeta('paused') 刷新磁盘状态。
-  static resume({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit, dir, round, history }) {
-    const c = new Committee({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit });
+  static resume({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit, dir, round, history, origin = '' }) {
+    const c = new Committee({ topic, materials, agents, roles, template, mode, maxRounds, baseDir, emit, origin });
     c.dir = dir;
     c.round = round;
     c.history = history;
@@ -50,7 +50,7 @@ export class Committee {
   async saveMeta(status) {
     await store.saveMetadata(this.dir, {
       status, topic: this.topic, template: this.template.name, roles: this.roles,
-      mode: this.mode, maxRounds: this.maxRounds, rounds: this.round, workspace: this.workspace,
+      mode: this.mode, maxRounds: this.maxRounds, rounds: this.round, workspace: this.workspace, origin: this.origin,
       agents: this.agents, errors: this.errors, updatedAt: new Date().toISOString(),
     });
   }

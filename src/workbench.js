@@ -370,6 +370,15 @@ export class Workbench {
     this.emit({ type: 'sys', data: `已丢弃 ${targets.length} 个文件的改动（patch 保留在会话目录可手工找回）` });
   }
 
+  // 静默注入一条用户侧消息（落盘+广播，不触发任何模型调用）——裁决卡回流等场景用
+  async note(text) {
+    const m = { seq: this.messages.length, from: 'user', name: '用户', text, ts: new Date().toISOString() };
+    this.messages.push(m);
+    await this.#persist(m);
+    this.emit({ type: 'chat-message', from: 'user', name: '用户', data: text });
+    await this.saveMeta();
+  }
+
   // 升格材料：把对话史打包成会议简报草稿（用户在建会表单里可编辑）
   promoteMaterials(maxMessages = 60) {
     const tail = this.messages.slice(-maxMessages);

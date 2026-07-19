@@ -165,7 +165,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const committee = new Committee({
           topic: body.topic, materials,
           agents: deriveSessionAgents(agents, roleIds, workspace),
-          roles: body.roles, template, mode: body.mode ?? 'manual', workspace,
+          roles: body.roles, template, mode: body.mode ?? 'manual', workspace, origin: String(body.origin ?? ''),
           maxRounds: Math.min(Math.max(Number(body.maxRounds) || 4, 1), 10),
           baseDir: sessionsDir,
           emit: ev => {
@@ -242,7 +242,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           const committee = Committee.resume({
             topic: meta.topic, materials, agents: resumedAgents, roles: meta.roles, template,
             mode: meta.mode, maxRounds: meta.maxRounds, baseDir: sessionsDir,
-            dir, round: rounds, history,
+            dir, round: rounds, history, origin: String(meta.origin ?? ''),
             emit: ev => {
               entry.events.push(ev);
               entry.updatedAt = new Date().toISOString();
@@ -323,17 +323,19 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         benches.set(id, entry);
         return json(res, 200, { id });
       }
-      if (url.pathname === '/api/workbenches/resume' && req.method === 'POST') {
-        const body = await readBody(req);
-        const dirname = String(body.dirname ?? '');
+      // 活动工作台查找 + 从磁盘装配（resume 路由与裁决回流共用）
+      const findActiveBenchId = dirname => {
+        for (const [bid, e] of benches.entries()) if (e.bench.dir && path.basename(e.bench.dir) === dirname) return bid;
+        return null;
+      };
+      const resumeBenchFromDisk = async dirname => {
         let entries = [];
         try { entries = (await readdir(sessionsDir, { withFileTypes: true })).filter(d => d.isDirectory()).map(d => d.name); } catch { /* 无目录 */ }
-        if (!entries.includes(dirname)) return json(res, 404, { error: '归档不存在' }); // 白名单精确匹配，杜绝路径穿越
-        for (const e of benches.values()) if (e.bench.dir && path.basename(e.bench.dir) === dirname) return json(res, 409, { error: '该工作台已在进行中' });
+        if (!entries.includes(dirname)) throw new Error('归档不存在'); // 白名单精确匹配，杜绝路径穿越
         const dir = path.join(sessionsDir, dirname);
         const { meta, messages, builds } = await loadWorkbenchFromDisk(dir);
         const participants = (meta.participants ?? []).filter(x => agents[x]);
-        if (!participants.length) return json(res, 400, { error: '该工作台的参与模型已全部从配置中移除' });
+        if (!participants.length) throw new Error('该工作台的参与模型已全部从配置中移除');
         const wbWorkspace = String(meta.workspace ?? '');
         const entry = newBenchEntry();
         const bench = await Workbench.resume({
@@ -358,7 +360,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         entry.events.push({ type: 'state', data: 'idle' });
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         benches.set(id, entry);
-        return json(res, 200, { id });
+        return id;
+      };
+      if (url.pathname === '/api/workbenches/resume' && req.method === 'POST') {
+        const body = await readBody(req);
+        const dirname = String(body.dirname ?? '');
+        if (findActiveBenchId(dirname)) return json(res, 409, { error: '该工作台已在进行中' });
+        try { return json(res, 200, { id: await resumeBenchFromDisk(dirname) }); }
+        catch (e) { return json(res, 404, { error: String(e.message ?? e) }); }
       }
       // 动手 diff 的审批（应用/丢弃）——嵌套路径，先于工作台通配匹配
       const wbBuild = url.pathname.match(/^\/api\/workbenches\/([a-z0-9]+)\/builds\/([a-z0-9]+)\/(apply|discard)$/);
@@ -435,9 +444,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return json(res, 200, { ok: true });
         }
         if (action === 'promote') {
-          // 升格：对话史打包成会议草稿，走既有 #draft 预填链路
+          // 升格：对话史打包成会议草稿，走既有 #draft 预填链路；携带来源目录名供裁决卡回流
           const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
-          drafts.set(id, { topic: String(body.topic ?? '') || ('工作台议题：' + (b.name || '未命名')), materials: b.promoteMaterials(), template: 'general', workspace: '' });
+          drafts.set(id, { topic: String(body.topic ?? '') || ('工作台议题：' + (b.name || '未命名')), materials: b.promoteMaterials(), template: 'general', workspace: '', originBench: path.basename(b.dir) });
           while (drafts.size > 20) drafts.delete(drafts.keys().next().value);
           return json(res, 200, { id });
         }
@@ -458,7 +467,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         }
         if (!action && req.method === 'GET')
           return json(res, 200, {
-            state: c.state, round: c.round, topic: c.topic, dir: c.dir, materials: c.materials,
+            state: c.state, round: c.round, topic: c.topic, dir: c.dir, materials: c.materials, origin: c.origin,
             roles: c.roles, agentNames: Object.fromEntries(Object.entries(c.agents).map(([id, a]) => [id, a.name])),
           });
         // events 是 GET 语义（SSE），必须先放行，再统一做 POST 检查
@@ -491,6 +500,18 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           case 'stop': c.stopRound(); return json(res, 200, { ok: true });
           case 'save-partial': return fire(() => c.savePartial());
           case 'resummarize': return fire(() => c.resummarize());
+          case 'flowback': {
+            // 裁决卡回流到来源工作台：活动的直接用，不在内存则从磁盘恢复
+            if (!c.origin) return json(res, 400, { error: '该会议并非从工作台升格而来' });
+            let card;
+            try { card = await readFile(path.join(c.dir, 'judge-card.md'), 'utf8'); }
+            catch { return json(res, 400, { error: '尚无裁决卡——先「进入裁决」' }); }
+            try {
+              const benchId = findActiveBenchId(c.origin) ?? await resumeBenchFromDisk(c.origin);
+              await benches.get(benchId).bench.note('【会议裁决回流】来自会议「' + c.topic + '」\n\n' + card.trim());
+              return json(res, 200, { benchId });
+            } catch (e) { return json(res, 404, { error: '来源工作台已不存在或无法恢复: ' + String(e.message ?? e) }); }
+          }
           case 'rename': {
             // 只改展示标题（同步进 metadata）；后续轮次 prompt 中的议题随之更新——改名以澄清议题为目的，属预期行为
             const title = String(body.title ?? '').trim();

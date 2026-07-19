@@ -379,3 +379,50 @@ test('extractChunkText: toolMarkers 输出工具活动行', async () => {
   const withTools = extractChunkText(line, { toolMarkers: true });
   assert.match(withTools, /▸ Edit src\/app\.js/);
 });
+
+// ---- 裁决卡回流：工作台 → 升格 → 会议 → 裁决 → 回流 ----
+test('flowback: 升格携带来源，裁决卡回流贴回原工作台（含从磁盘恢复路径）', async () => {
+  const { startServer } = await import('../src/server.js');
+  const { writeFileSync: wf } = await import('node:fs');
+  const sessionsDir = mkdtempSync(path.join(tmpdir(), 'wb-fb-'));
+  const srv = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', sessionsDir });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) }).then(r => r.json());
+  try {
+    // 工作台 + 一条消息
+    const { id: wbid } = await post('/api/workbenches', { name: '回流源', participants: ['mockA', 'mockB'] });
+    await post(`/api/workbenches/${wbid}/message`, { text: '讨论中', to: ['mockA'] });
+    for (let i = 0; i < 50; i++) { const s = await fetch(`${base}/api/workbenches/${wbid}`).then(r => r.json()); if (s.state === 'idle') break; await new Promise(r => setTimeout(r, 100)); }
+    const benchDirname = path.basename(srv.benches.get(wbid).bench.dir);
+    // 升格草稿带来源
+    const { id: draftId } = await post(`/api/workbenches/${wbid}/promote`, {});
+    const draft = await fetch(`${base}/api/draft/${draftId}`).then(r => r.json());
+    assert.equal(draft.originBench, benchDirname);
+    // 建会（带 origin）
+    const sess = await post('/api/sessions', {
+      topic: '回流测试会', materials: draft.materials, template: 'general',
+      roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockB' }, mode: 'manual',
+      origin: draft.originBench,
+    });
+    assert.ok(sess.id);
+    const detail = await fetch(`${base}/api/sessions/${sess.id}`).then(r => r.json());
+    assert.equal(detail.origin, benchDirname);
+    // 无裁决卡时回流被拒
+    const noCard = await post(`/api/sessions/${sess.id}/flowback`, {});
+    assert.match(noCard.error, /尚无裁决卡/);
+    // 手工放一张裁决卡（跳过真实裁决流程）
+    wf(path.join(detail.dir, 'judge-card.md'), '# 裁决\n采纳方案 X');
+    // 回流（工作台还在内存：走活动路径）
+    const fb = await post(`/api/sessions/${sess.id}/flowback`, {});
+    assert.equal(fb.benchId, wbid);
+    const msgs = srv.benches.get(wbid).bench.messages;
+    assert.match(msgs.at(-1).text, /会议裁决回流/);
+    assert.match(msgs.at(-1).text, /采纳方案 X/);
+    // 从内存删掉工作台（模拟重启）→ 回流走磁盘恢复路径
+    srv.benches.delete(wbid);
+    const fb2 = await post(`/api/sessions/${sess.id}/flowback`, {});
+    assert.ok(fb2.benchId);
+    const resumed = srv.benches.get(fb2.benchId).bench;
+    assert.equal(resumed.messages.filter(m => /会议裁决回流/.test(m.text)).length, 2); // 上一条也从磁盘读回
+  } finally { srv.close(); }
+});

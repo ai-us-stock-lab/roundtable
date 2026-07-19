@@ -1,5 +1,7 @@
 const $ = s => document.querySelector(s);
 let cfg, sid = null, sideOf = {}, es = null; // agentId -> 'A' | 'B'；es：当前 EventSource 引用（新会话/重连时需先关闭旧连接）
+let draftOrigin = null; // 升格草稿携带的来源工作台目录名（建会时随请求提交）
+let sessionOrigin = ''; // 当前会议的来源工作台（非空则裁决卡可回流）
 let archiveDirname = null; // 当前只读归档视图对应的磁盘目录名（供「恢复此会话」按钮使用）
 
 async function boot() {
@@ -35,6 +37,7 @@ async function applyDraftFromHash() {
     // 发起方建议的模板也一并选好（例如项目会诊）——模板选错会导致顾问输出结构完全不对题
     if (d.template && [...$('#tpl').options].some(o => o.value === d.template)) $('#tpl').value = d.template;
     if (d.workspace) $('#workspace').value = d.workspace;
+    draftOrigin = d.originBench ?? null;
     setStatebar('议题、背景材料与模板已由项目对话预填——选好阵容后点「开始第 1 轮」');
   } catch { /* 服务波动时静默，用户可手动填 */ }
   history.replaceState(null, '', location.pathname); // 用后清掉 hash，防刷新重复提示
@@ -225,7 +228,12 @@ function onEvent(ev) {
     const hint = ev.data === 'auth' ? '（请在终端重新登录该 CLI 后点「重试」）' : '';
     setStatebar('错误' + (ev.agentId ? '（' + (cfg.agents[ev.agentId]?.name ?? ev.agentId) + '）' : '') + ': ' + ev.data + hint, true);
   }
-  if (ev.type === 'judge-card') { $('#judgecard').hidden = false; $('#judgecard pre').textContent = ev.data; refreshSessionList(); }
+  if (ev.type === 'judge-card') {
+    $('#judgecard').hidden = false;
+    $('#judgecard pre').textContent = ev.data;
+    $('#flowback').hidden = !sessionOrigin; // 升格而来的会议才有回流通道
+    refreshSessionList();
+  }
 }
 // 状态提示：会话区可见时写主状态条，否则写建会话页的提示条（修复：创建失败静默无反应）
 function setStatebar(msg, isErr) {
@@ -273,6 +281,7 @@ function resetSessionUI() {
   $('#colA .name').textContent = ''; $('#colB .name').textContent = '';
   $('#summary').textContent = '';
   $('#judgecard').hidden = true; $('#judgecard pre').textContent = '';
+  $('#flowback').hidden = true; sessionOrigin = '';
   const statebar = $('#statebar'); statebar.textContent = ''; statebar.hidden = true; statebar.classList.remove('err');
   const setupbar = $('#setupbar'); setupbar.textContent = ''; setupbar.hidden = true; setupbar.classList.remove('err');
   roundDivs = {};
@@ -394,6 +403,7 @@ async function attach(id) {
   resetSessionUI();
   sid = id;
   sideOf = { [detail.roles.debaters[0]]: 'A', [detail.roles.debaters[1]]: 'B' };
+  sessionOrigin = detail.origin ?? '';
   setBrief(detail.topic, detail.materials);
   $('#colA .name').textContent = detail.agentNames?.[detail.roles.debaters[0]] ?? detail.roles.debaters[0];
   $('#colB .name').textContent = detail.agentNames?.[detail.roles.debaters[1]] ?? detail.roles.debaters[1];
@@ -848,7 +858,7 @@ $('#start').onclick = async () => {
   try {
     r = await (await fetch('/api/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, workspace: $('#workspace').value.trim(), roles, mode: 'manual' }),
+      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, workspace: $('#workspace').value.trim(), roles, mode: 'manual', origin: draftOrigin ?? '' }),
     })).json();
   } catch (e) {
     btn.disabled = false;
@@ -863,6 +873,8 @@ $('#start').onclick = async () => {
   closeWbEvents();
   sid = r.id;
   resetSessionUI();
+  sessionOrigin = draftOrigin ?? '';
+  draftOrigin = null; // 已随建会提交，防止串到下一场手建会议
   setBrief($('#topic').value, $('#materials').value);
   $('#setup').hidden = true; // setupbar 已在 resetSessionUI 中清空隐藏
   sideOf = { [roles.debaters[0]]: 'A', [roles.debaters[1]]: 'B' };
@@ -893,6 +905,13 @@ $('#chatInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#chatSend').onclick(); }
 });
 $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre').textContent);
+$('#flowback').onclick = async () => {
+  let r;
+  try { r = await (await fetch(`/api/sessions/${sid}/flowback`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
+  catch (e) { return setStatebar('回流失败: ' + e.message, true); }
+  if (r.error) return setStatebar(r.error, true);
+  await attachWorkbench(r.benchId); // 裁决卡已贴回，切到工作台接着聊
+};
 for (const [sel, side] of [['#colA', 'A'], ['#colB', 'B']]) {
   $(sel + ' .retry').onclick = () => api('retry', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });
   $(sel + ' .skip').onclick = () => api('skip', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });
