@@ -326,3 +326,56 @@ test('build: 丢弃只标记状态，主工作区不变；守卫齐全', async (
   const { builds } = await loadWorkbenchFromDisk(w.dir);
   assert.equal(builds[0].status, 'discarded');
 });
+
+// ---- 按文件审批 + 实时可视 ----
+const TWO_FILE_AGENT = {
+  name: 'Builder2',
+  command: [process.execPath, '-e', "const f=require('fs');f.writeFileSync('one.txt','1');f.writeFileSync('two.txt','2');console.log('two files')"],
+  input: 'stdin', output: 'text', timeoutMs: 10000,
+  envWhitelist: ['PATH', 'SYSTEMROOT'], cwd: process.cwd(),
+};
+
+test('splitPatchByFile: 按 diff --git 头切文件段', async () => {
+  const { splitPatchByFile } = await import('../src/workbench.js');
+  const patch = 'diff --git a/x.js b/x.js\n--- a/x.js\n+++ b/x.js\n@@\n+1\ndiff --git a/y.md b/y.md\n--- a/y.md\n+++ b/y.md\n@@\n+2\n';
+  const segs = splitPatchByFile(patch);
+  assert.deepEqual(segs.map(s => s.path), ['x.js', 'y.md']);
+  assert.match(segs[0].patch, /\+1/);
+  assert.match(segs[1].patch, /\+2/);
+});
+
+test('build: 按文件逐个应用（partial → applied），事件带 files', async () => {
+  const workspace = makeWorkspaceRepo();
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-pf-'));
+  const events = [];
+  const w = new Workbench({
+    name: 'pf', agents: MOCK_AGENTS(), participants: ['m1'], baseDir,
+    emit: e => events.push(e), workspace, writeAgents: { m1: TWO_FILE_AGENT },
+  });
+  await w.init();
+  await w.build('写两个文件', 'm1');
+  assert.equal(w.builds[0].files.length, 2);
+  // 只应用 one.txt
+  await w.applyBuild(w.builds[0].buildId, ['one.txt']);
+  assert.equal(w.builds[0].status, 'partial');
+  assert.ok(existsSync(path.join(workspace, 'one.txt')));
+  assert.ok(!existsSync(path.join(workspace, 'two.txt'))); // 另一个仍未落地
+  // 剩余全部应用
+  await w.applyBuild(w.builds[0].buildId);
+  assert.equal(w.builds[0].status, 'applied');
+  assert.ok(existsSync(path.join(workspace, 'two.txt')));
+  // build-status 事件携带 files 状态
+  const st = events.filter(e => e.type === 'build-status').at(-1);
+  assert.ok(st.files.every(f => f.status === 'applied'));
+});
+
+test('extractChunkText: toolMarkers 输出工具活动行', async () => {
+  const { extractChunkText } = await import('../src/runner.js');
+  const line = JSON.stringify({ type: 'assistant', message: { content: [
+    { type: 'text', text: '我来改' },
+    { type: 'tool_use', name: 'Edit', input: { file_path: 'C:/proj/src/app.js' } },
+  ] } });
+  assert.equal(extractChunkText(line), '我来改'); // 默认不含工具标记（辩手栏行为不变）
+  const withTools = extractChunkText(line, { toolMarkers: true });
+  assert.match(withTools, /▸ Edit src\/app\.js/);
+});

@@ -529,22 +529,18 @@ function appendWbMessage(from, name, to, text, ctx, build) {
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
 }
 
-// 动手 diff 卡片：改动统计 + 可折叠 patch（+/- 行着色）+ 应用/丢弃审批
-function renderBuildCard(build) {
-  const card = document.createElement('div');
-  card.className = 'build-card';
-  card.dataset.buildId = build.buildId;
-  const head = document.createElement('div');
-  head.className = 'build-head';
-  const statEl = document.createElement('pre');
-  statEl.className = 'build-stat';
-  statEl.textContent = build.stat;
-  const det = document.createElement('details');
-  const sum = document.createElement('summary');
-  sum.textContent = '查看 diff';
+// 与后端 splitPatchByFile 同逻辑：按 diff --git 头切文件段
+function splitPatchClient(patch) {
+  return (patch || '').split(/(?=^diff --git )/m).filter(s => s.trim()).map(seg => {
+    const m = /^diff --git a\/(.+?) b\//.exec(seg);
+    return { path: m ? m[1] : '(unknown)', patch: seg };
+  });
+}
+
+function coloredPatchPre(text) {
   const pre = document.createElement('pre');
   pre.className = 'build-patch';
-  for (const line of (build.patch || '（patch 内容缺失，仅存统计）').split('\n')) {
+  for (const line of (text || '（patch 内容缺失，仅存统计）').split('\n')) {
     const span = document.createElement('span');
     span.textContent = line + '\n';
     if (/^\+(?!\+\+)/.test(line)) span.className = 'dl-add';
@@ -552,45 +548,92 @@ function renderBuildCard(build) {
     else if (/^(diff |@@)/.test(line)) span.className = 'dl-meta';
     pre.appendChild(span);
   }
-  det.appendChild(sum);
-  det.appendChild(pre);
+  return pre;
+}
+
+const buildAction = (buildId, action, files) =>
+  fetch(`/api/workbenches/${wbId}/builds/${buildId}/${action}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(files ? { files } : {}),
+  }).then(r => r.json())
+    .then(r => { if (r.error) appendWbError((action === 'apply' ? '应用失败: ' : '') + r.error + (action === 'apply' ? '（若与本地改动冲突，可手工应用会话目录 builds/ 下的 patch）' : '')); })
+    .catch(e => appendWbError('网络错误: ' + e.message));
+
+// 动手 diff 卡片：按文件分节（每个文件独立 折叠diff+应用/丢弃）+ 顶部整体操作
+function renderBuildCard(build) {
+  const card = document.createElement('div');
+  card.className = 'build-card';
+  card.dataset.buildId = build.buildId;
+  const statEl = document.createElement('pre');
+  statEl.className = 'build-stat';
+  statEl.textContent = build.stat;
+  card.appendChild(statEl);
+
+  const segs = splitPatchClient(build.patch);
+  const files = build.files?.length ? build.files : [{ path: '(全部)', status: build.status }];
+  const fileRows = new Map();
+  for (const f of files) {
+    const row = document.createElement('div');
+    row.className = 'build-file';
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'bf-path';
+    nameSpan.textContent = f.path;
+    const stSpan = document.createElement('span');
+    stSpan.className = 'bf-st';
+    const applyBtn = document.createElement('button');
+    applyBtn.textContent = '应用';
+    applyBtn.title = '只应用这个文件的改动';
+    applyBtn.onclick = e => { e.preventDefault(); e.stopPropagation(); buildAction(build.buildId, 'apply', f.path === '(全部)' ? null : [f.path]); };
+    const discardBtn = document.createElement('button');
+    discardBtn.textContent = '丢弃';
+    discardBtn.onclick = e => { e.preventDefault(); e.stopPropagation(); buildAction(build.buildId, 'discard', f.path === '(全部)' ? null : [f.path]); };
+    sum.appendChild(nameSpan);
+    sum.appendChild(stSpan);
+    sum.appendChild(applyBtn);
+    sum.appendChild(discardBtn);
+    det.appendChild(sum);
+    const seg = segs.find(s => s.path === f.path);
+    det.appendChild(coloredPatchPre(seg ? seg.patch : build.patch));
+    row.appendChild(det);
+    card.appendChild(row);
+    fileRows.set(f.path, { stSpan, applyBtn, discardBtn });
+  }
+
   const bar = document.createElement('div');
   bar.className = 'build-bar';
   const status = document.createElement('span');
   status.className = 'build-status';
-  const setStatus = st => {
-    status.textContent = st === 'pending' ? '待审批' : (st === 'applied' ? '✓ 已应用到主工作区' : '已丢弃');
+  const applyAll = document.createElement('button');
+  applyAll.className = 'primary';
+  applyAll.textContent = '全部应用';
+  applyAll.onclick = () => buildAction(build.buildId, 'apply', null);
+  const discardAll = document.createElement('button');
+  discardAll.textContent = '全部丢弃';
+  discardAll.onclick = () => buildAction(build.buildId, 'discard', null);
+  bar.appendChild(applyAll);
+  bar.appendChild(discardAll);
+  bar.appendChild(status);
+  card.appendChild(bar);
+
+  const setStatus = (st, fileStates) => {
+    status.textContent = st === 'pending' ? '待审批' : (st === 'applied' ? '✓ 已全部应用' : (st === 'partial' ? '部分处理' : '已丢弃'));
     status.dataset.st = st;
-    bar.querySelectorAll('button').forEach(b => { b.hidden = st !== 'pending'; });
+    const done = st === 'applied' || st === 'discarded';
+    applyAll.hidden = done;
+    discardAll.hidden = done;
+    for (const f of (fileStates ?? files)) {
+      const row = fileRows.get(f.path);
+      if (!row) continue;
+      row.stSpan.textContent = f.status === 'pending' ? '' : (f.status === 'applied' ? '✓ 已应用' : '已丢弃');
+      row.stSpan.dataset.st = f.status;
+      row.applyBtn.hidden = f.status !== 'pending';
+      row.discardBtn.hidden = f.status !== 'pending';
+    }
   };
   card.updateStatus = setStatus;
-  const applyBtn = document.createElement('button');
-  applyBtn.className = 'primary';
-  applyBtn.textContent = '应用到主工作区';
-  applyBtn.onclick = async () => {
-    applyBtn.disabled = true;
-    let r;
-    try { r = await (await fetch(`/api/workbenches/${wbId}/builds/${build.buildId}/apply`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
-    catch (e) { applyBtn.disabled = false; return appendWbError('应用失败: ' + e.message); }
-    applyBtn.disabled = false;
-    if (r.error) appendWbError('应用失败: ' + r.error + '（若与你的本地改动冲突，可手工应用会话目录 builds/ 下的 patch）');
-  };
-  const discardBtn = document.createElement('button');
-  discardBtn.textContent = '丢弃';
-  discardBtn.onclick = async () => {
-    let r;
-    try { r = await (await fetch(`/api/workbenches/${wbId}/builds/${build.buildId}/discard`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
-    catch (e) { return appendWbError('丢弃失败: ' + e.message); }
-    if (r.error) appendWbError(r.error);
-  };
-  bar.appendChild(applyBtn);
-  bar.appendChild(discardBtn);
-  bar.appendChild(status);
-  head.appendChild(statEl);
-  card.appendChild(head);
-  card.appendChild(det);
-  card.appendChild(bar);
-  setStatus(build.status);
+  setStatus(build.status, files);
   return card;
 }
 
@@ -602,13 +645,37 @@ function appendWbError(text) {
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
 }
 
+let wbLiveBox = null; // 动手实时输出盒（完成后移除，正式消息+diff 卡随 chat-message 到来）
+function ensureLiveBox(agentName) {
+  if (wbLiveBox) return wbLiveBox.querySelector('pre');
+  wbLiveBox = document.createElement('div');
+  wbLiveBox.className = 'build-live';
+  const head = document.createElement('div');
+  head.className = 'build-live-head';
+  head.textContent = agentName + ' 动手中——实时输出';
+  const pre = document.createElement('pre');
+  wbLiveBox.appendChild(head);
+  wbLiveBox.appendChild(pre);
+  $('#wbLog').appendChild(wbLiveBox);
+  return pre;
+}
+function removeLiveBox() { if (wbLiveBox) { wbLiveBox.remove(); wbLiveBox = null; } }
+
 function onWbEvent(ev) {
-  if (ev.type === 'chat-message') appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build);
+  if (ev.type === 'chat-message') { removeLiveBox(); appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build); }
+  if (ev.type === 'build-progress') {
+    const pre = ensureLiveBox(cfg.agents[ev.agentId]?.name ?? ev.agentId);
+    pre.appendChild(document.createTextNode(ev.data));
+    // 只留末尾 ~12KB，防长任务把 DOM 撑爆
+    while (pre.textContent.length > 12000 && pre.firstChild) pre.removeChild(pre.firstChild);
+    wbLiveBox.scrollTop = wbLiveBox.scrollHeight;
+    $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+  }
   if (ev.type === 'build-status') {
     const card = $('#wbLog').querySelector(`.build-card[data-build-id="${ev.buildId}"]`);
-    if (card?.updateStatus) card.updateStatus(ev.status);
+    if (card?.updateStatus) card.updateStatus(ev.status, ev.files);
   }
-  if (ev.type === 'state') setWbBusy(ev.data === 'busy');
+  if (ev.type === 'state') { setWbBusy(ev.data === 'busy'); if (ev.data === 'idle') removeLiveBox(); }
   if (ev.type === 'agent-status') {
     const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
     const chipDot = $('#wbMembers')?.querySelector(`.member-chip[data-agent="${ev.agentId}"] .st-dot`);

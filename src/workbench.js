@@ -67,6 +67,14 @@ export function buildWorkbenchPrompt({ selfName, participantNames, messages, tex
 // 这里留出 argv 本身与安全余量。stdin 模式无此限制，给宽预算防失控。
 export const promptLimitFor = cfg => (cfg.input === 'arg' ? 26000 : 150000);
 
+// 把整体 patch 按文件切分（git 的 diff --git 头是文件段落边界，二进制段同样适用）
+export function splitPatchByFile(patch) {
+  return patch.split(/(?=^diff --git )/m).filter(s => s.trim()).map(seg => {
+    const m = /^diff --git a\/(.+?) b\//.exec(seg);
+    return { path: m ? m[1] : '(unknown)', patch: seg };
+  });
+}
+
 // ---- 工作台：多模型群聊会话（与 Committee 平行的顶层会话类型，零共享状态） ----
 export class Workbench {
   constructor({ name, agents, participants, baseDir, emit, workspace = '', writeAgents = {} }) {
@@ -273,7 +281,11 @@ export class Workbench {
       const seq = this.messages.length;
       const buildId = 'b' + seq + Date.now().toString(36).slice(-4);
       await savePrompt(this.dir, `build-${buildId}`, agentId, built.prompt);
-      const res = await runAgent({ ...wcfg, cwd: wt }, built.prompt, { signal: this.aborter.signal });
+      const res = await runAgent({ ...wcfg, cwd: wt }, built.prompt, {
+        signal: this.aborter.signal,
+        toolMarkers: true, // 实时可视：工具活动（正在改哪个文件）推给前端
+        onChunk: t => this.emit({ type: 'build-progress', agentId, data: t }),
+      });
       await saveRaw(this.dir, `build-${buildId}`, agentId, res.raw || res.text || res.error || '');
       if (!res.ok) {
         this.emit({ type: 'agent-status', agentId, label: 'wb', data: 'failed:' + res.error });
@@ -294,14 +306,15 @@ export class Workbench {
       }
       await mkdir(path.join(this.dir, 'builds'), { recursive: true });
       await writeFile(this.patchPathOf(buildId), redact(patch), 'utf8');
-      const record = { buildId, agentId, instruction: instruction.slice(0, 200), stat, status: 'pending', ts: new Date().toISOString() };
+      const files = splitPatchByFile(patch).map(f => ({ path: f.path, status: 'pending' }));
+      const record = { buildId, agentId, instruction: instruction.slice(0, 200), stat, status: 'pending', files, ts: new Date().toISOString() };
       this.builds.push(record);
       await this.#saveBuilds();
       const reply = { seq, from: agentId, name, text: summary, ts: new Date().toISOString(), build: buildId };
       this.messages.push(reply);
       this.lastSpeaker = agentId;
       await this.#persist(reply);
-      this.emit({ type: 'chat-message', from: agentId, name, data: summary, build: { buildId, stat, status: 'pending', patch: patch.slice(0, 200000) } });
+      this.emit({ type: 'chat-message', from: agentId, name, data: summary, build: { buildId, stat, status: 'pending', files, patch: patch.slice(0, 200000) } });
       this.emit({ type: 'agent-status', agentId, label: 'wb', data: 'done' });
     } finally {
       if (wt) await removeWorktree(this.workspace, wt).catch(() => {}); // 用完即毁：patch 是唯一事实源
@@ -312,26 +325,49 @@ export class Workbench {
     }
   }
 
-  async applyBuild(buildId) {
+  #buildRecordOf(buildId) {
     const b = this.builds.find(x => x.buildId === buildId);
     if (!b) throw new Error('该 diff 不存在');
-    if (b.status !== 'pending') throw new Error('该 diff 已' + (b.status === 'applied' ? '应用' : '丢弃'));
-    const patch = await readFile(this.patchPathOf(buildId), 'utf8');
-    await applyPatch(this.workspace, patch); // 冲突则整体失败抛错，绝不半套用
-    b.status = 'applied';
-    await this.#saveBuilds();
-    this.emit({ type: 'build-status', buildId, status: 'applied' });
-    this.emit({ type: 'sys', data: `diff 已应用到主工作区（未提交——commit 权在你自己的 git 流程里）` });
+    if (!b.files) b.files = [{ path: '(全部)', status: b.status }]; // 旧记录兼容
+    return b;
   }
 
-  async discardBuild(buildId) {
-    const b = this.builds.find(x => x.buildId === buildId);
-    if (!b) throw new Error('该 diff 不存在');
-    if (b.status !== 'pending') throw new Error('该 diff 已' + (b.status === 'applied' ? '应用' : '丢弃'));
-    b.status = 'discarded';
+  // 整体状态由文件状态推导：全应用=applied，全丢弃=discarded，有过动作但还有剩=partial
+  #recalcBuildStatus(b) {
+    if (b.files.every(f => f.status === 'applied')) b.status = 'applied';
+    else if (b.files.every(f => f.status === 'discarded')) b.status = 'discarded';
+    else if (b.files.some(f => f.status !== 'pending')) b.status = 'partial';
+    else b.status = 'pending';
+  }
+
+  // 应用（可按文件）：filePaths 省略 = 应用全部待批文件；选中的文件子集作为一个原子 patch 应用
+  async applyBuild(buildId, filePaths = null) {
+    const b = this.#buildRecordOf(buildId);
+    const targets = b.files.filter(f => f.status === 'pending' && (!filePaths || filePaths.includes(f.path)));
+    if (!targets.length) throw new Error('没有可应用的文件（已应用或已丢弃）');
+    const patch = await readFile(this.patchPathOf(buildId), 'utf8');
+    const segs = splitPatchByFile(patch);
+    const sub = b.files.length === 1 && b.files[0].path === '(全部)'
+      ? patch
+      : segs.filter(s => targets.some(t => t.path === s.path)).map(s => s.patch).join('');
+    if (!sub.trim()) throw new Error('patch 内容缺失');
+    await applyPatch(this.workspace, sub); // 冲突则该子集整体失败抛错，绝不半套用
+    for (const f of targets) f.status = 'applied';
+    this.#recalcBuildStatus(b);
+    await this.#saveBuilds();
+    this.emit({ type: 'build-status', buildId, status: b.status, files: b.files });
+    this.emit({ type: 'sys', data: `已应用 ${targets.length} 个文件到主工作区（未提交——commit 权在你自己的 git 流程里）` });
+  }
+
+  async discardBuild(buildId, filePaths = null) {
+    const b = this.#buildRecordOf(buildId);
+    const targets = b.files.filter(f => f.status === 'pending' && (!filePaths || filePaths.includes(f.path)));
+    if (!targets.length) throw new Error('没有可丢弃的文件');
+    for (const f of targets) f.status = 'discarded';
+    this.#recalcBuildStatus(b);
     await this.#saveBuilds(); // patch 文件保留作审计，仅标记状态
-    this.emit({ type: 'build-status', buildId, status: 'discarded' });
-    this.emit({ type: 'sys', data: 'diff 已丢弃（patch 文件保留在会话目录可手工找回）' });
+    this.emit({ type: 'build-status', buildId, status: b.status, files: b.files });
+    this.emit({ type: 'sys', data: `已丢弃 ${targets.length} 个文件的改动（patch 保留在会话目录可手工找回）` });
   }
 
   // 升格材料：把对话史打包成会议简报草稿（用户在建会表单里可编辑）

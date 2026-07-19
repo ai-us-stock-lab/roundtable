@@ -44,13 +44,22 @@ function parseOutput(mode, raw) {
 
 // 从 stream-json 单行事件中提取可展示的助手文本（claude 的 assistant 事件）。
 // system/init/result 等内部事件返回空串——它们不该出现在用户眼前的发言栏里。
-export function extractChunkText(line) {
+export function extractChunkText(line, { toolMarkers = false } = {}) {
   const t = line.trim();
   if (!t.startsWith('{')) return '';
   try {
     const ev = JSON.parse(t);
     if (ev.type === 'assistant' && Array.isArray(ev.message?.content)) {
-      return ev.message.content.filter(c => c.type === 'text' && typeof c.text === 'string').map(c => c.text).join('');
+      const parts = [];
+      for (const c of ev.message.content) {
+        if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text);
+        // 动手实时可视：工具活动是"它正在干什么"的最强信号（正在改哪个文件）
+        else if (toolMarkers && c.type === 'tool_use') {
+          const target = c.input?.file_path ?? c.input?.pattern ?? c.input?.path ?? '';
+          parts.push(`\n▸ ${c.name}${target ? ' ' + String(target).split(/[\\/]/).slice(-2).join('/') : ''}\n`);
+        }
+      }
+      return parts.join('');
     }
   } catch { /* 半行/坏行忽略，等缓冲齐 */ }
   return '';
@@ -148,7 +157,7 @@ export async function runAgent(cfg, prompt, opts = {}) {
         const lines = lineBuf.split('\n');
         lineBuf = lines.pop();
         for (const line of lines) {
-          const text = extractChunkText(line);
+          const text = extractChunkText(line, { toolMarkers: !!opts.toolMarkers });
           if (text) opts.onChunk(text);
         }
       } else if (cfg.output !== 'json') {

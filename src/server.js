@@ -350,7 +350,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             if (rec) {
               let patch = '';
               try { patch = (await readFile(bench.patchPathOf(msg.build), 'utf8')).slice(0, 200000); } catch { /* patch 文件缺失则只展示统计 */ }
-              build = { buildId: rec.buildId, stat: rec.stat, status: rec.status, patch };
+              build = { buildId: rec.buildId, stat: rec.stat, status: rec.status, ...(rec.files ? { files: rec.files } : {}), patch };
             }
           }
           entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}), ...(build ? { build } : {}) });
@@ -365,9 +365,11 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       if (wbBuild && req.method === 'POST') {
         const entry = benches.get(wbBuild[1]);
         if (!entry) return json(res, 404, { error: '工作台不存在' });
+        const bBody = await readBody(req);
+        const files = Array.isArray(bBody.files) && bBody.files.length ? bBody.files.map(String) : null;
         try {
-          if (wbBuild[3] === 'apply') await entry.bench.applyBuild(wbBuild[2]);
-          else await entry.bench.discardBuild(wbBuild[2]);
+          if (wbBuild[3] === 'apply') await entry.bench.applyBuild(wbBuild[2], files);
+          else await entry.bench.discardBuild(wbBuild[2], files);
           return json(res, 200, { ok: true });
         } catch (e) { return json(res, 400, { error: String(e.message ?? e) }); }
       }

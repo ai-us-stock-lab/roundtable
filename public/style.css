@@ -379,6 +379,36 @@ details.section[open] > summary { margin-bottom: 4px; }
 .build-bar button { font-size: 12.5px; padding: 4px 14px; }
 .build-status { font-size: 12px; color: var(--dim); margin-left: auto; }
 .build-status[data-st="applied"] { color: var(--ok); font-weight: 600; }
+.build-status[data-st="partial"] { color: var(--accent); }
+
+/* 按文件分节：每个文件一行（路径+状态+就地审批），点开看该文件 diff */
+.build-file { border-top: 1px solid var(--line); }
+.build-file summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  padding: 6px 10px; font-size: 12.5px;
+}
+.build-file summary::before { content: "▸"; color: var(--dim); }
+.build-file details[open] summary::before { content: "▾"; }
+.bf-path { font-family: Consolas, monospace; }
+.bf-st { font-size: 11.5px; color: var(--dim); }
+.bf-st[data-st="applied"] { color: var(--ok); }
+.build-file summary button { font-size: 11.5px; padding: 1px 10px; border-radius: 999px; margin-left: auto; }
+.build-file summary button + button { margin-left: 0; }
+.build-file .build-patch { border-top: 1px solid var(--line); }
+
+/* 动手实时输出盒 */
+.build-live {
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--r-ctl); max-height: 240px; overflow-y: auto;
+}
+.build-live-head {
+  position: sticky; top: 0; background: var(--raise); padding: 5px 10px;
+  font-size: 12px; font-weight: 650; color: var(--accent); border-bottom: 1px solid var(--line);
+}
+.build-live pre {
+  margin: 0; padding: 8px 10px; font: 12px/1.55 Consolas, monospace;
+  white-space: pre-wrap; word-break: break-all;
+}
 #wbBuild { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); font-weight: 600; }
 
 /* ============ 归档只读视图 ============ */
