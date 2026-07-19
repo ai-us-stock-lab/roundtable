@@ -139,3 +139,29 @@ test('edge: 伪造 Host 头的请求被 403，正常回环 Host 放行', async (
     assert.equal(await reqWithHost('localhost:1234'), 200); // 端口不限，host 名必须回环
   } finally { srv.close(); }
 });
+
+// ---- 本地 API 防 CSRF（Origin 校验，堵 text/plain 简单请求绕过预检） ----
+test('edge: 跨站 Origin 的请求被 403，同源/无 Origin 放行', async () => {
+  const { startServer } = await import('../src/server.js');
+  const http = (await import('node:http')).default;
+  const sessionsDir = mkdtempSync(path.join(tmpdir(), 'edge-csrf-'));
+  const srv = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', sessionsDir });
+  const reqWithOrigin = (origin, method = 'GET') => new Promise(resolve => {
+    const headers = { host: `127.0.0.1:${srv.port}` };
+    if (origin !== undefined) headers.origin = origin;
+    const r = http.request({ host: '127.0.0.1', port: srv.port, path: '/api/config', method, headers }, res => {
+      res.resume(); resolve(res.statusCode);
+    });
+    r.on('error', () => resolve(-1));
+    if (method === 'POST') r.write('{}');
+    r.end();
+  });
+  try {
+    assert.equal(await reqWithOrigin('https://evil.example.com'), 403); // 跨站页面直连
+    assert.equal(await reqWithOrigin('http://evil.example.com:7777'), 403);
+    assert.equal(await reqWithOrigin(`http://127.0.0.1:${srv.port}`), 200); // 同源浏览器请求
+    assert.equal(await reqWithOrigin('http://localhost:9999'), 200); // 回环端口不限
+    assert.equal(await reqWithOrigin(undefined), 200); // 脚本/CLI 无 Origin
+    assert.equal(await reqWithOrigin('null'), 200); // file:// 等 opaque origin
+  } finally { srv.close(); }
+});

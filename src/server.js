@@ -100,12 +100,24 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
 
   const server = http.createServer(async (req, res) => {
     try {
-      // 防 DNS rebinding：恶意网页可把自己的域名解析到 127.0.0.1 绕过浏览器同源限制，
-      // 此时请求的 Host 头是攻击者域名——只放行 Host 为本机回环的请求
+      const LOOPBACK = /^(127\.0\.0\.1|localhost|\[::1\]|::1)(:\d+)?$/i;
+      // ① 防 DNS rebinding：恶意域名解析到 127.0.0.1 时 Host 头是攻击者域名——只放行回环 Host
       const host = String(req.headers.host ?? '');
-      if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host)) {
+      if (!LOOPBACK.test(host)) {
         res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
         return res.end(JSON.stringify({ error: 'forbidden host' }));
+      }
+      // ② 防 CSRF：直连本地 API 的跨站请求 Host 头合法（=目标），但浏览器强制带上真实 Origin。
+      // 拒绝任何非回环 Origin——否则恶意网页可用 text/plain「简单请求」绕过 CORS 预检、
+      // 静默触发写文件类操作（同源请求 Origin 缺省或为回环，正常放行）
+      const origin = req.headers.origin;
+      if (origin && origin !== 'null') {
+        let ohost = '';
+        try { ohost = new URL(origin).host; } catch { ohost = 'invalid'; }
+        if (!LOOPBACK.test(ohost)) {
+          res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
+          return res.end(JSON.stringify({ error: 'forbidden origin' }));
+        }
       }
       const url = new URL(req.url, 'http://127.0.0.1');
       // 静态文件（白名单，无路径穿越面）
