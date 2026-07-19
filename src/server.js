@@ -8,7 +8,15 @@ import { loadTemplates } from './templates.js';
 import { resolveCliPath } from './resolve.js';
 
 // 静态文件白名单（无通用静态服务，杜绝路径穿越）
-const STATIC = { '/': ['public/index.html', 'text/html'], '/app.js': ['public/app.js', 'text/javascript'], '/style.css': ['public/style.css', 'text/css'] };
+const STATIC = {
+  '/': ['public/index.html', 'text/html'],
+  '/style.css': ['public/style.css', 'text/css'],
+  '/app-core.js': ['public/app-core.js', 'text/javascript'],
+  '/app-committee.js': ['public/app-committee.js', 'text/javascript'],
+  '/app-workbench.js': ['public/app-workbench.js', 'text/javascript'],
+  '/app-sidebar.js': ['public/app-sidebar.js', 'text/javascript'],
+  '/app-boot.js': ['public/app-boot.js', 'text/javascript'],
+};
 
 // 按会话派生 agent 配置：挂载工作区（项目目录只读访问）时，cwd 指向项目根，
 // 且配置了 workspaceArgs 的 adapter 换用只读工具集参数（如 claude 放开 Read/Grep/Glob）。
