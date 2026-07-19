@@ -117,3 +117,25 @@ test('edge: syncWorktreeWithMain——继承已改未提交+未跟踪文件，ag
   assert.ok(existsSync(path.join(r, 'agent.txt')));
   assert.equal(norm(readFileSync(path.join(r, 'base.txt'), 'utf8')), 'user-edited\n');
 });
+
+// ---- 本地 API 防 DNS rebinding ----
+test('edge: 伪造 Host 头的请求被 403，正常回环 Host 放行', async () => {
+  const { startServer } = await import('../src/server.js');
+  const http = (await import('node:http')).default;
+  const sessionsDir = mkdtempSync(path.join(tmpdir(), 'edge-host-'));
+  const srv = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', sessionsDir });
+  const reqWithHost = host => new Promise(resolve => {
+    const r = http.request({ host: '127.0.0.1', port: srv.port, path: '/api/config', headers: { host } }, res => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    r.on('error', () => resolve(-1));
+    r.end();
+  });
+  try {
+    assert.equal(await reqWithHost('evil.example.com'), 403); // DNS rebinding 姿势
+    assert.equal(await reqWithHost('evil.example.com:7777'), 403);
+    assert.equal(await reqWithHost(`127.0.0.1:${srv.port}`), 200);
+    assert.equal(await reqWithHost('localhost:1234'), 200); // 端口不限，host 名必须回环
+  } finally { srv.close(); }
+});

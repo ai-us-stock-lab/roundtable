@@ -58,17 +58,25 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   const benches = new Map(); // 工作台会话（与委员会平行的顶层类型）：{ bench, events, clients, updatedAt }
   const drafts = new Map(); // 外部 AI（项目对话侧）预填的议题+简报草稿，浏览器 #draft=<id> 打开即填入表单
 
-  // 工作台的内存条目 + SSE 事件缓冲（与委员会同一套回放模式）
-  const newBenchEntry = () => {
-    const entry = { events: [], clients: new Set(), updatedAt: new Date().toISOString() };
+  // 统一的事件发射器（委员会与工作台共用一套语义，杜绝两套回放代码漂移）：
+  // - 纯瞬态流（build-progress）只发给在线客户端，绝不进回放缓冲——否则长命工作台
+  //   积累几十次动手的流式碎片会无界增长、重连越来越慢
+  // - 其余事件进缓冲供重连回放；缓冲总量硬上限，超限丢最旧（骨架事件由磁盘状态兜底重建）
+  const TRANSIENT = new Set(['build-progress']);
+  const EVENT_BUFFER_CAP = 4000;
+  const attachEmit = entry => {
     entry.emit = ev => {
-      entry.events.push(ev);
       entry.updatedAt = new Date().toISOString();
+      if (!TRANSIENT.has(ev.type)) {
+        entry.events.push(ev);
+        if (entry.events.length > EVENT_BUFFER_CAP) entry.events.splice(0, entry.events.length - EVENT_BUFFER_CAP);
+      }
       const line = `data: ${JSON.stringify(ev)}\n\n`;
       for (const c of entry.clients) { try { c.write(line); } catch { entry.clients.delete(c); } }
     };
     return entry;
   };
+  const newBenchEntry = () => attachEmit({ events: [], clients: new Set(), updatedAt: new Date().toISOString() });
 
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
   const MAX_BODY_BYTES = 1024 * 1024; // 1MB 上限，防止无界内存增长
@@ -92,6 +100,13 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
 
   const server = http.createServer(async (req, res) => {
     try {
+      // 防 DNS rebinding：恶意网页可把自己的域名解析到 127.0.0.1 绕过浏览器同源限制，
+      // 此时请求的 Host 头是攻击者域名——只放行 Host 为本机回环的请求
+      const host = String(req.headers.host ?? '');
+      if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host)) {
+        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ error: 'forbidden host' }));
+      }
       const url = new URL(req.url, 'http://127.0.0.1');
       // 静态文件（白名单，无路径穿越面）
       if (req.method === 'GET' && STATIC[url.pathname]) {
@@ -160,7 +175,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         if (workspace) materials += '\n\n---\n参会说明：你的工作目录就是该项目的根目录（只读）。发言前请先自行查阅关键文件核实简报中的说法；引用事实时用「相对路径:行号」纯文本格式（如 src/server.js:123），不要写绝对路径，不要用 markdown 链接语法——你的发言按纯文本展示，链接语法只会变成刷屏的长串。';
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         const now = new Date().toISOString();
-        const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };
+        const entry = attachEmit({ events: [], clients: new Set(), createdAt: now, updatedAt: now });
         const roleIds = [...body.roles.debaters, body.roles.judge, body.roles.summarizer];
         const committee = new Committee({
           topic: body.topic, materials,
@@ -168,14 +183,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           roles: body.roles, template, mode: body.mode ?? 'manual', workspace, origin: String(body.origin ?? ''),
           maxRounds: Math.min(Math.max(Number(body.maxRounds) || 4, 1), 10),
           baseDir: sessionsDir,
-          emit: ev => {
-            entry.events.push(ev);
-            entry.updatedAt = new Date().toISOString();
-            const line = `data: ${JSON.stringify(ev)}\n\n`;
-            for (const c of entry.clients) {
-              try { c.write(line); } catch { entry.clients.delete(c); }
-            }
-          },
+          emit: ev => entry.emit(ev),
         });
         entry.committee = committee;
         await committee.init();
@@ -230,7 +238,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           }
           const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
           const now = new Date().toISOString();
-          const entry = { events: [], clients: new Set(), createdAt: now, updatedAt: now };
+          const entry = attachEmit({ events: [], clients: new Set(), createdAt: now, updatedAt: now });
           // agent 配置优先用当前全局配置重新派生（让 adapter 修复/升级惠及恢复的会话），
           // 仅当某 agent 已从全局配置中移除时才回退到存档快照
           const roleIds = [...meta.roles.debaters, meta.roles.judge, meta.roles.summarizer];
@@ -243,14 +251,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             topic: meta.topic, materials, agents: resumedAgents, roles: meta.roles, template,
             mode: meta.mode, maxRounds: meta.maxRounds, baseDir: sessionsDir,
             dir, round: rounds, history, origin: String(meta.origin ?? ''),
-            emit: ev => {
-              entry.events.push(ev);
-              entry.updatedAt = new Date().toISOString();
-              const line = `data: ${JSON.stringify(ev)}\n\n`;
-              for (const c of entry.clients) {
-                try { c.write(line); } catch { entry.clients.delete(c); }
-              }
-            },
+            emit: ev => entry.emit(ev),
           });
           entry.committee = committee;
           await committee.saveMeta('paused');
