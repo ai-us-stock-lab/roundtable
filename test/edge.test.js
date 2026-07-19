@@ -165,3 +165,17 @@ test('edge: 跨站 Origin 的请求被 403，同源/无 Origin 放行', async ()
     assert.equal(await reqWithOrigin('null'), 200); // file:// 等 opaque origin
   } finally { srv.close(); }
 });
+
+// ---- 应用 patch 的路径穿越防御（patch 内容来自模型输出，不可完全信任） ----
+test('edge: 恶意 patch 的 ../ 路径穿越被 git apply 拒绝，仓库外无文件落地', async () => {
+  const r = repo();
+  const evil = [
+    'diff --git a/../ESCAPED.txt b/../ESCAPED.txt',
+    'new file mode 100644', 'index 0000000..1111111',
+    '--- /dev/null', '+++ b/../ESCAPED.txt',
+    '@@ -0,0 +1 @@', '+pwned', '',
+  ].join('\n');
+  const { applyPatch } = await import('../src/worktree.js');
+  await assert.rejects(() => applyPatch(r, evil)); // git apply 默认拒绝越界路径
+  assert.ok(!existsSync(path.join(r, '..', 'ESCAPED.txt')));
+});
