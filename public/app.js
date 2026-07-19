@@ -312,11 +312,22 @@ async function refreshSessionList() {
     title.textContent = (s.topic || '（无议题）').replace(/^\[工作台\] /, '');
     const meta = document.createElement('div');
     meta.className = 'session-meta';
+    // 状态点（参考 super.engineering 侧栏行语义）：running/busy=accent 呼吸，done=绿，其余=灰
+    const dot = document.createElement('i');
+    const st = s.state ?? '';
+    dot.className = 'st-dot ' + (['running', 'busy', 'judging'].includes(st) ? 'st-live' : (st === 'done' ? 'st-done' : 'st-idle'));
+    title.prepend(dot);
     const when = s.updatedAt ? ' · ' + fmtTime(s.updatedAt) : '';
     meta.textContent = (isWb
       ? ('工作台 · ' + (s.archived ? '已归档' : (s.state === 'busy' ? '回复中' : '在线')) + ' · ' + (s.round ?? 0) + ' 条')
       : (s.archived ? ('已归档 · ' + (s.state ?? '')) : ((s.state ?? '') + ' · 第 ' + (s.round ?? 0) + ' 轮'))) + when;
     meta.title = s.updatedAt ? '最后更新：' + new Date(s.updatedAt).toLocaleString() : '';
+    if (s.pending > 0) { // 待批 diff 徽章
+      const badge = document.createElement('span');
+      badge.className = 'pending-badge';
+      badge.textContent = '待批 ' + s.pending;
+      meta.appendChild(badge);
+    }
     const del = document.createElement('button');
     del.className = 'session-del';
     del.textContent = '✕';
@@ -450,6 +461,50 @@ function setWbBusy(busy) {
   $('#wbStop').hidden = !busy;
 }
 
+// markdown-lite：标题/列表/代码块/**粗体**/`行内码`。逐行 createElement + textContent 构建，
+// 模型输出绝不进 innerHTML（与全站同一条防 XSS 底线）；表格等其余语法保持原文
+function renderRichText(container, text) {
+  const inline = (parent, s) => {
+    for (const tok of s.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g)) {
+      if (!tok) continue;
+      if (tok.startsWith('**') && tok.endsWith('**') && tok.length > 4) {
+        const b = document.createElement('strong');
+        b.textContent = tok.slice(2, -2);
+        parent.appendChild(b);
+      } else if (tok.startsWith('`') && tok.endsWith('`') && tok.length > 2) {
+        const c = document.createElement('code');
+        c.textContent = tok.slice(1, -1);
+        parent.appendChild(c);
+      } else parent.appendChild(document.createTextNode(tok));
+    }
+  };
+  let codeBlock = null;
+  for (const line of text.split('\n')) {
+    if (/^```/.test(line)) {
+      if (codeBlock) { codeBlock = null; } // 结束围栏
+      else { codeBlock = document.createElement('pre'); codeBlock.className = 'md-code'; container.appendChild(codeBlock); }
+      continue;
+    }
+    if (codeBlock) { codeBlock.appendChild(document.createTextNode(line + '\n')); continue; }
+    const h = /^(#{1,4})\s+(.*)/.exec(line);
+    const li = /^([-*]|\d+[.、])\s+(.*)/.exec(line);
+    const row = document.createElement('div');
+    if (h) { row.className = 'md-h'; inline(row, h[2]); }
+    else if (li) {
+      row.className = 'md-li';
+      const marker = document.createElement('span');
+      marker.className = 'md-marker';
+      marker.textContent = /^[-*]$/.test(li[1]) ? '•' : li[1];
+      row.appendChild(marker);
+      const rest = document.createElement('span');
+      inline(rest, li[2]);
+      row.appendChild(rest);
+    } else if (line.trim() === '') { row.className = 'md-gap'; }
+    else { row.className = 'md-p'; inline(row, line); }
+    container.appendChild(row);
+  }
+}
+
 function appendWbMessage(from, name, to, text, ctx, build) {
   const el = wbTyping[from]; if (el) { el.remove(); delete wbTyping[from]; }
   const div = document.createElement('div');
@@ -459,7 +514,8 @@ function appendWbMessage(from, name, to, text, ctx, build) {
   nameEl.textContent = name + (to?.length ? ' → ' + to.join('、') : '');
   const bodyEl = document.createElement('div');
   bodyEl.className = 'chat-body';
-  bodyEl.textContent = text;
+  if (from === 'user') bodyEl.textContent = text;
+  else renderRichText(bodyEl, text); // 模型回复常带 markdown——富渲染提升可读性
   div.appendChild(nameEl);
   div.appendChild(bodyEl);
   if (ctx) { // 截断明示（裁决卡：禁止静默截断）
@@ -555,6 +611,8 @@ function onWbEvent(ev) {
   if (ev.type === 'state') setWbBusy(ev.data === 'busy');
   if (ev.type === 'agent-status') {
     const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
+    const chipDot = $('#wbMembers')?.querySelector(`.member-chip[data-agent="${ev.agentId}"] .st-dot`);
+    if (chipDot) chipDot.className = 'st-dot ' + (ev.data === 'running' ? 'st-live' : 'st-idle');
     if (ev.data === 'running') {
       const div = document.createElement('div');
       div.className = 'chat-msg chat-agent chat-typing';
@@ -586,8 +644,26 @@ async function attachWorkbench(id) {
   wbId = id;
   wbInfo = info;
   $('#wbTitle').textContent = info.name || '未命名工作台';
-  $('#wbMembers').textContent = info.participants.map(p => info.agentNames[p] ?? p).join(' · ')
-    + (info.workspace ? ' · 挂载: ' + info.workspace : '');
+  // 成员状态条（参考 agent 标签语义）：每人一枚芯片，发言中亮点
+  const members = $('#wbMembers');
+  members.innerHTML = '';
+  for (const p of info.participants) {
+    const chip = document.createElement('span');
+    chip.className = 'member-chip';
+    chip.dataset.agent = p;
+    const d = document.createElement('i');
+    d.className = 'st-dot st-idle';
+    chip.appendChild(d);
+    chip.appendChild(document.createTextNode(info.agentNames[p] ?? p));
+    members.appendChild(chip);
+  }
+  if (info.workspace) {
+    const ws = document.createElement('span');
+    ws.className = 'wb-ws';
+    ws.textContent = info.workspace.split(/[\\/]/).pop();
+    ws.title = '挂载: ' + info.workspace;
+    members.appendChild(ws);
+  }
   // 动手按钮：挂了工作区且有可写模型才出现
   $('#wbBuild').hidden = !(info.workspace && (info.writeCapable ?? []).length);
   $('#wbLog').innerHTML = '';

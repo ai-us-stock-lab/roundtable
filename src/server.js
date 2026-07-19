@@ -120,6 +120,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const activeBenches = [...benches.entries()].map(([id, entry]) => ({
           id, topic: '[工作台] ' + (entry.bench.name || '未命名'), state: entry.bench.state,
           round: entry.bench.messages.length, archived: false, updatedAt: entry.updatedAt, type: 'workbench',
+          pending: entry.bench.builds.filter(b => b.status === 'pending').length, // 待批 diff 数
         }));
         let archived = [];
         try {
