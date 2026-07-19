@@ -3,7 +3,7 @@ import { appendFile, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { runAgent } from './runner.js';
 import { redact } from './redactor.js';
 import { createSessionDir, saveMetadata, savePrompt, saveRaw } from './store.js';
-import { isGitRepo, createWorktree, captureDiff, removeWorktree, applyPatch } from './worktree.js';
+import { isGitRepo, createWorktree, captureDiff, removeWorktree, applyPatch, syncWorktreeWithMain } from './worktree.js';
 
 // ---- 上下文装配：整条消息取舍，从最近往前装（O(n)，绝不从字符中间切） ----
 // 裁决卡共识：禁止静默截断——truncated 信息随消息回传前端明示
@@ -262,14 +262,24 @@ export class Workbench {
       this.emit({ type: 'agent-status', agentId, label: 'wb', data: 'running' });
       this.emit({ type: 'sys', data: `${name} 开始动手（隔离副本，主工作区零接触）…` });
 
+      // 二次修改上下文：上一个 build 还在待批/被丢弃时，把那份 diff 附上——新任务很可能是对它的修正
+      let prevPatchNote = '';
+      const lastBuild = this.builds.at(-1);
+      if (lastBuild && ['pending', 'discarded'].includes(lastBuild.status)) {
+        try {
+          const prev = await readFile(this.patchPathOf(lastBuild.buildId), 'utf8');
+          prevPatchNote = `\n\n=== 你（或同伴）上一次动手产出的 diff（${lastBuild.status === 'pending' ? '用户尚未应用' : '已被用户丢弃'}，当前文件里没有这些改动）===\n${prev.slice(0, 6000)}${prev.length > 6000 ? '\n（diff 过长已截断）' : ''}\n=== 上一次 diff 结束——若本次任务是修正它，请在其基础上改进 ===`;
+        } catch { /* patch 文件缺失则不附 */ }
+      }
       const tail = [
         '\n=== 动手任务（你现在拥有写权限）===',
-        '你的当前工作目录是该项目的一个隔离副本，你拥有完整读写权限；你的修改不会直接影响主项目——完成后会生成 diff 交由用户审阅决定是否应用。',
+        '你的当前工作目录是该项目的一个隔离副本（已同步主工作区最新状态），你拥有完整读写权限；你的修改不会直接影响主项目——完成后会生成 diff 交由用户审阅决定是否应用。',
         '要求：',
         '- 只做任务要求的事，不顺手重构无关代码',
         '- 不要执行任何 git 提交/推送类操作',
         '- 完成后用几句话说明：改了哪些文件、为什么这么改、用户应重点检查什么',
         `任务：${instruction}`,
+        prevPatchNote,
       ].join('\n');
       const built = buildPromptWithTail({
         selfName: name,
@@ -279,6 +289,9 @@ export class Workbench {
       if (built.blocked) throw new Error('上下文超出该模型长度上限，无法动手');
 
       wt = await createWorktree(this.workspace);
+      // 副本继承主工作区未提交状态（你「应用了但没 commit」的上次成果，这次动手才看得见）
+      try { await syncWorktreeWithMain(this.workspace, wt); }
+      catch (e) { this.emit({ type: 'sys', data: '副本未能带上主工作区未提交的改动（' + String(e.message ?? e).slice(0, 80) + '）——本次动手基于最近一次提交' }); }
       const seq = this.messages.length;
       const buildId = 'b' + seq + Date.now().toString(36).slice(-4);
       await savePrompt(this.dir, `build-${buildId}`, agentId, built.prompt);

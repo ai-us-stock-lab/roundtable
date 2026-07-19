@@ -88,3 +88,32 @@ test('edge: 巨型 patch（400KB）应用不损坏', async () => {
   await applyPatch(r, patch);
   assert.equal(readFileSync(path.join(r, 'big.txt'), 'utf8').replaceAll('\r\n', '\n').length, big.length);
 });
+
+// ---- 副本继承主工作区未提交状态 ----
+test('edge: syncWorktreeWithMain——继承已改未提交+未跟踪文件，agent 增量与之隔离', async () => {
+  const { syncWorktreeWithMain } = await import('../src/worktree.js');
+  const r = repo();
+  // 主工作区：改一个已跟踪文件（不提交）+ 新建一个未跟踪文件 + 一个被忽略的文件
+  writeFileSync(path.join(r, 'base.txt'), 'user-edited\n');
+  writeFileSync(path.join(r, 'draft.md'), 'untracked\n');
+  writeFileSync(path.join(r, '.gitignore'), 'ignored.tmp\n');
+  writeFileSync(path.join(r, 'ignored.tmp'), 'noise\n');
+  const wt = await createWorktree(r);
+  const changed = await syncWorktreeWithMain(r, wt);
+  assert.equal(changed, true);
+  const norm = s => s.replaceAll('\r\n', '\n');
+  assert.equal(norm(readFileSync(path.join(wt, 'base.txt'), 'utf8')), 'user-edited\n'); // 未提交编辑可见
+  assert.ok(existsSync(path.join(wt, 'draft.md'))); // 未跟踪文件可见
+  assert.ok(!existsSync(path.join(wt, 'ignored.tmp'))); // 被忽略文件不带
+  // agent 只加一个文件 → diff 只含 agent 增量，不含用户未提交的改动
+  writeFileSync(path.join(wt, 'agent.txt'), 'delta\n');
+  const { patch } = await captureDiff(wt);
+  await removeWorktree(r, wt);
+  assert.match(patch, /agent\.txt/);
+  assert.ok(!patch.includes('user-edited'), 'diff 不应重复打包用户未提交的改动');
+  assert.ok(!patch.includes('draft.md'), 'diff 不应重复打包未跟踪文件');
+  // 应用后主工作区：agent 文件落地，用户未提交改动原样
+  await applyPatch(r, patch);
+  assert.ok(existsSync(path.join(r, 'agent.txt')));
+  assert.equal(norm(readFileSync(path.join(r, 'base.txt'), 'utf8')), 'user-edited\n');
+});
