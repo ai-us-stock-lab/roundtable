@@ -542,7 +542,7 @@ function appendWbMessage(from, name, to, text, ctx, build) {
 // 与后端 splitPatchByFile 同逻辑：按 diff --git 头切文件段
 function splitPatchClient(patch) {
   return (patch || '').split(/(?=^diff --git )/m).filter(s => s.trim()).map(seg => {
-    const m = /^diff --git a\/(.+?) b\//.exec(seg);
+    const m = /^diff --git "?a\/(.+?)"? "?b\//.exec(seg);
     return { path: m ? m[1] : '(unknown)', patch: seg };
   });
 }

@@ -67,10 +67,11 @@ export function buildWorkbenchPrompt({ selfName, participantNames, messages, tex
 // 这里留出 argv 本身与安全余量。stdin 模式无此限制，给宽预算防失控。
 export const promptLimitFor = cfg => (cfg.input === 'arg' ? 26000 : 150000);
 
-// 把整体 patch 按文件切分（git 的 diff --git 头是文件段落边界，二进制段同样适用）
+// 把整体 patch 按文件切分（git 的 diff --git 头是文件段落边界，二进制段同样适用）。
+// 路径解析兼容带引号形式（"a/中文.md"）作为 core.quotepath 之外的兜底
 export function splitPatchByFile(patch) {
   return patch.split(/(?=^diff --git )/m).filter(s => s.trim()).map(seg => {
-    const m = /^diff --git a\/(.+?) b\//.exec(seg);
+    const m = /^diff --git "?a\/(.+?)"? "?b\//.exec(seg);
     return { path: m ? m[1] : '(unknown)', patch: seg };
   });
 }

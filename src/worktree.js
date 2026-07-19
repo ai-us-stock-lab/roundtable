@@ -5,7 +5,8 @@ import path from 'node:path';
 
 // 全部走 argv 数组 + 无 shell——与 runner 同一条安全底线
 const git = (cwd, ...args) => new Promise((resolve, reject) => {
-  execFile('git', ['-C', cwd, ...args], { windowsHide: true, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+  // core.quotepath=false：非 ASCII 路径（中文文件名）按原始 UTF-8 输出，不转义成 "\346..." 引号形式
+  execFile('git', ['-C', cwd, '-c', 'core.quotepath=false', ...args], { windowsHide: true, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
     if (err) reject(new Error((stderr || err.message).trim().slice(0, 500)));
     else resolve(stdout);
   });

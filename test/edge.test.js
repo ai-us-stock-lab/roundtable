@@ -1,0 +1,90 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { isGitRepo, createWorktree, captureDiff, removeWorktree, applyPatch } from '../src/worktree.js';
+import { splitPatchByFile } from '../src/workbench.js';
+
+function repo() {
+  const dir = mkdtempSync(path.join(tmpdir(), 'edge-'));
+  const g = (...a) => execFileSync('git', ['-C', dir, ...a], { windowsHide: true });
+  g('init'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
+  writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+  g('add', '-A'); g('commit', '-m', 'init');
+  return dir;
+}
+
+test('edge: 中文文件名——diff 捕获/按文件切分/应用 全链路', async () => {
+  const r = repo();
+  const wt = await createWorktree(r);
+  writeFileSync(path.join(wt, '设计文档.md'), '中文内容\n');
+  mkdirSync(path.join(wt, '资料'), { recursive: true });
+  writeFileSync(path.join(wt, '资料', '笔记.txt'), 'note\n');
+  const { stat, patch } = await captureDiff(wt);
+  await removeWorktree(r, wt);
+  const segs = splitPatchByFile(patch);
+  const paths = segs.map(s => s.path);
+  assert.ok(paths.includes('设计文档.md'), '中文文件名应被正确解析，实际: ' + JSON.stringify(paths));
+  assert.ok(paths.includes('资料/笔记.txt'), '中文目录应被正确解析，实际: ' + JSON.stringify(paths));
+  await applyPatch(r, patch);
+  assert.ok(existsSync(path.join(r, '设计文档.md')));
+  assert.ok(existsSync(path.join(r, '资料', '笔记.txt')));
+});
+
+test('edge: 空仓库（无任何提交）——建副本给出可懂错误而非神秘失败', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'edge-empty-'));
+  const g = (...a) => execFileSync('git', ['-C', dir, ...a], { windowsHide: true });
+  g('init');
+  assert.equal(await isGitRepo(dir), true);
+  await assert.rejects(() => createWorktree(dir)); // 至少不能静默成功；错误信息可懂性在 UI 层兜底
+});
+
+test('edge: 合并冲突进行中的仓库——副本仍可创建（基于 HEAD，不受未完成操作影响）', async () => {
+  const r = repo();
+  const g = (...a) => execFileSync('git', ['-C', r, ...a], { windowsHide: true });
+  // 制造合并冲突状态
+  g('checkout', '-b', 'feat');
+  writeFileSync(path.join(r, 'base.txt'), 'feat\n');
+  g('commit', '-am', 'feat');
+  g('checkout', 'master');
+  writeFileSync(path.join(r, 'base.txt'), 'main\n');
+  g('commit', '-am', 'main');
+  try { g('merge', 'feat'); } catch { /* 预期冲突 */ }
+  // 冲突状态下建副本：worktree 基于 HEAD，应当照常工作
+  const wt = await createWorktree(r);
+  writeFileSync(path.join(wt, 'new.txt'), 'x\n');
+  const { patch } = await captureDiff(wt);
+  await removeWorktree(r, wt);
+  assert.match(patch, /new\.txt/);
+});
+
+test('edge: 嵌套子目录作为 workspace——diff 路径与应用位置一致性', async () => {
+  const r = repo();
+  mkdirSync(path.join(r, 'sub'), { recursive: true });
+  writeFileSync(path.join(r, 'sub', 'inner.txt'), 'inner\n');
+  execFileSync('git', ['-C', r, 'add', '-A'], { windowsHide: true });
+  execFileSync('git', ['-C', r, 'commit', '-m', 'sub'], { windowsHide: true });
+  const sub = path.join(r, 'sub');
+  // 以子目录为 workspace 建副本：git worktree add 作用于整个仓库
+  const wt = await createWorktree(sub);
+  writeFileSync(path.join(wt, 'sub', 'inner.txt'), 'changed\n');
+  const { patch } = await captureDiff(wt);
+  await removeWorktree(sub, wt);
+  // 应用时 workspace=子目录：patch 路径是仓库根相对（sub/inner.txt）——git -C sub apply 会怎样？
+  await applyPatch(sub, patch);
+  assert.equal(readFileSync(path.join(r, 'sub', 'inner.txt'), 'utf8').replaceAll('\r\n', '\n'), 'changed\n');
+});
+
+test('edge: 巨型 patch（400KB）应用不损坏', async () => {
+  const r = repo();
+  const wt = await createWorktree(r);
+  const big = ('x'.repeat(80) + '\n').repeat(5000); // ~400KB
+  writeFileSync(path.join(wt, 'big.txt'), big);
+  const { patch } = await captureDiff(wt);
+  await removeWorktree(r, wt);
+  assert.ok(patch.length > 300000);
+  await applyPatch(r, patch);
+  assert.equal(readFileSync(path.join(r, 'big.txt'), 'utf8').replaceAll('\r\n', '\n').length, big.length);
+});
