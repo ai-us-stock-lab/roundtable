@@ -342,6 +342,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, wbWorkspace),
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
           workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants), builds,
+          buildSessions: meta.buildSessions ?? {},
         });
         entry.bench = bench;
         // 合成事件回放：重建聊天记录（含动手 diff 卡片——patch 从会话目录读回）
@@ -370,11 +371,17 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         catch (e) { return json(res, 404, { error: String(e.message ?? e) }); }
       }
       // 动手 diff 的审批（应用/丢弃）——嵌套路径，先于工作台通配匹配
-      const wbBuild = url.pathname.match(/^\/api\/workbenches\/([a-z0-9]+)\/builds\/([a-z0-9]+)\/(apply|discard)$/);
+      const wbBuild = url.pathname.match(/^\/api\/workbenches\/([a-z0-9]+)\/builds\/([a-z0-9]+)\/(apply|discard|check)$/);
       if (wbBuild && req.method === 'POST') {
         const entry = benches.get(wbBuild[1]);
         if (!entry) return json(res, 404, { error: '工作台不存在' });
         const bBody = await readBody(req);
+        if (wbBuild[3] === 'check') {
+          // 长任务：异步执行，结果经 SSE（check-result）回报
+          if (entry.bench.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          entry.bench.checkBuild(wbBuild[2], String(bBody.cmd ?? '')).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
+          return json(res, 200, { ok: true });
+        }
         const files = Array.isArray(bBody.files) && bBody.files.length ? bBody.files.map(String) : null;
         try {
           if (wbBuild[3] === 'apply') await entry.bench.applyBuild(wbBuild[2], files);

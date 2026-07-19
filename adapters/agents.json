@@ -49,6 +49,10 @@
       "--verbose",
       "--disallowedTools",
       "Bash,NotebookEdit,WebFetch,WebSearch,Task"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{SESSION_ID}"
     ]
   },
   "codex": {

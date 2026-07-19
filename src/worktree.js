@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile, cp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -66,6 +66,23 @@ export async function removeWorktree(repoDir, wtDir) {
   try { await git(repoDir, 'worktree', 'remove', '--force', wtDir); }
   catch { await rm(wtDir, { recursive: true, force: true }).catch(() => {}); }
   await git(repoDir, 'worktree', 'prune').catch(() => {});
+}
+
+// 在指定目录运行用户提供的检查命令（构建/测试）。shell:true 是刻意的例外：
+// 命令由用户在界面亲手输入（等同其在终端执行），绝不接受模型产出的命令——
+// 模型输出只作文本展示的底线不变。
+export function runCommand(cwd, cmd, { timeoutMs = 300000, signal } = {}) {
+  return new Promise(resolve => {
+    let out = '', settled = false;
+    const child = spawn(cmd, { cwd, shell: true, windowsHide: true });
+    const finish = r => { if (!settled) { settled = true; clearTimeout(timer); resolve(r); } };
+    const timer = setTimeout(() => { child.kill('SIGKILL'); finish({ code: null, output: out, timedOut: true }); }, timeoutMs);
+    signal?.addEventListener('abort', () => { child.kill('SIGKILL'); finish({ code: null, output: out, aborted: true }); });
+    child.stdout.on('data', d => (out += d.toString()));
+    child.stderr.on('data', d => (out += d.toString()));
+    child.on('error', e => finish({ code: null, output: out + '\n' + e.message }));
+    child.on('close', code => finish({ code, output: out }));
+  });
 }
 
 // 把 patch 应用到主工作区（工作树层面，不自动提交——commit 权始终在用户自己的 git 流程里）

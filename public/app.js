@@ -622,8 +622,21 @@ function renderBuildCard(build) {
   const discardAll = document.createElement('button');
   discardAll.textContent = '全部丢弃';
   discardAll.onclick = () => buildAction(build.buildId, 'discard', null);
+  const checkBtn = document.createElement('button');
+  checkBtn.textContent = '跑检查';
+  checkBtn.title = '在「主工作区状态+此改动」的临时副本里运行构建/测试命令，通过了再应用';
+  checkBtn.onclick = async () => {
+    const cmd = prompt('检查命令（在应用前于临时副本中运行）：', localStorage.getItem('rt-check-cmd') || 'npm test');
+    if (cmd === null || !cmd.trim()) return;
+    localStorage.setItem('rt-check-cmd', cmd.trim());
+    let r;
+    try { r = await (await fetch(`/api/workbenches/${wbId}/builds/${build.buildId}/check`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cmd: cmd.trim() }) })).json(); }
+    catch (e) { return appendWbError('网络错误: ' + e.message); }
+    if (r.error) appendWbError(r.error);
+  };
   bar.appendChild(applyAll);
   bar.appendChild(discardAll);
+  bar.appendChild(checkBtn);
   bar.appendChild(status);
   card.appendChild(bar);
 
@@ -633,6 +646,7 @@ function renderBuildCard(build) {
     const done = st === 'applied' || st === 'discarded';
     applyAll.hidden = done;
     discardAll.hidden = done;
+    checkBtn.hidden = done;
     for (const f of (fileStates ?? files)) {
       const row = fileRows.get(f.path);
       if (!row) continue;
@@ -679,6 +693,24 @@ function onWbEvent(ev) {
     // 只留末尾 ~12KB，防长任务把 DOM 撑爆
     while (pre.textContent.length > 12000 && pre.firstChild) pre.removeChild(pre.firstChild);
     wbLiveBox.scrollTop = wbLiveBox.scrollHeight;
+    $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+  }
+  if (ev.type === 'check-result') {
+    const card = document.createElement('div');
+    card.className = 'check-card ' + (ev.ok ? 'check-ok' : 'check-fail');
+    const head = document.createElement('div');
+    head.className = 'check-head';
+    head.textContent = (ev.timedOut ? '⏱ 检查超时' : (ev.ok ? '✓ 检查通过' : `✗ 检查未通过（exit ${ev.code}）`)) + ' · ' + ev.cmd;
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.textContent = '查看输出';
+    const pre = document.createElement('pre');
+    pre.textContent = ev.output || '（无输出）';
+    det.appendChild(sum);
+    det.appendChild(pre);
+    card.appendChild(head);
+    card.appendChild(det);
+    $('#wbLog').appendChild(card);
     $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
   }
   if (ev.type === 'build-status') {

@@ -65,6 +65,16 @@ export function extractChunkText(line, { toolMarkers = false } = {}) {
   return '';
 }
 
+// 从 stream-json 原始输出中提取会话 id（任一事件的 session_id 字段，取首个）
+export function extractSessionId(raw) {
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    try { const j = JSON.parse(t); if (j.session_id) return j.session_id; } catch { /* 坏行忽略 */ }
+  }
+  return null;
+}
+
 // 按 adapter 配置的正则逐行过滤输出（如 hermes 的 "session_id: xxx" 前缀行）
 function applyDropLines(text, dropLines) {
   if (!dropLines?.length) return text;
@@ -171,7 +181,11 @@ export async function runAgent(cfg, prompt, opts = {}) {
         const auth = AUTH_RE.test(err + out);
         return finish({ ok: false, error: auth ? 'auth' : 'exit:' + code, text: out, exitCode: code });
       }
-      finish({ ok: true, text: applyDropLines(parseOutput(cfg.output, out), cfg.dropLines), exitCode: 0 });
+      finish({
+        ok: true, text: applyDropLines(parseOutput(cfg.output, out), cfg.dropLines), exitCode: 0,
+        // stream-json 输出的 CLI（claude）自带会话 id——供「会话续接」复用其原生记忆
+        ...(cfg.output === 'stream-json' ? { sessionId: extractSessionId(out) } : {}),
+      });
     });
     // 子进程未读完 stdin 即退出时会在 stdin 侧 emit 'error'（EPIPE/EOF）；
     // 不监听会作为未捕获异常崩溃整个进程。这里吞掉——进程退出本身已由

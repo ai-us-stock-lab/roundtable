@@ -3,7 +3,7 @@ import { appendFile, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { runAgent } from './runner.js';
 import { redact } from './redactor.js';
 import { createSessionDir, saveMetadata, savePrompt, saveRaw } from './store.js';
-import { isGitRepo, createWorktree, captureDiff, removeWorktree, applyPatch, syncWorktreeWithMain } from './worktree.js';
+import { isGitRepo, createWorktree, captureDiff, removeWorktree, applyPatch, syncWorktreeWithMain, runCommand } from './worktree.js';
 
 // ---- 上下文装配：整条消息取舍，从最近往前装（O(n)，绝不从字符中间切） ----
 // 裁决卡共识：禁止静默截断——truncated 信息随消息回传前端明示
@@ -83,16 +83,18 @@ export class Workbench {
     this.emit = emit ?? (() => {});
     this.messages = []; // {seq, from:'user'|agentId, name, to?, toNames?, text, ts, ctx?, build?}
     this.builds = []; // {buildId, agentId, instruction, stat, status: pending|applied|discarded, ts}
+    this.buildSessions = {}; // agentId -> {sessionId, lastSeq}：动手会话续接（CLI 原生记忆），持久化于 metadata
     this.state = 'idle';
     this.dir = null;
     this.lastSpeaker = null; // 最近一次发言的模型 id（默认路由目标）
   }
 
-  static async resume({ name, agents, participants, baseDir, emit, dir, messages, workspace = '', writeAgents = {}, builds = [] }) {
+  static async resume({ name, agents, participants, baseDir, emit, dir, messages, workspace = '', writeAgents = {}, builds = [], buildSessions = {} }) {
     const w = new Workbench({ name, agents, participants, baseDir, emit, workspace, writeAgents });
     w.dir = dir;
     w.messages = messages;
     w.builds = builds;
+    w.buildSessions = buildSessions;
     for (const m of messages) if (m.from !== 'user') w.lastSpeaker = m.from;
     return w;
   }
@@ -106,7 +108,7 @@ export class Workbench {
     await saveMetadata(this.dir, {
       type: 'workbench', topic: '[工作台] ' + (this.name || '未命名'),
       participants: this.participants, status: this.state === 'busy' ? 'busy' : 'idle',
-      workspace: this.workspace,
+      workspace: this.workspace, buildSessions: this.buildSessions,
       rounds: this.messages.length, updatedAt: new Date().toISOString(),
     });
   }
@@ -281,11 +283,16 @@ export class Workbench {
         `任务：${instruction}`,
         prevPatchNote,
       ].join('\n');
-      const built = buildPromptWithTail({
+      // 会话续接：该模型此前动手过且适配器支持续接 → 复用 CLI 原生会话
+      //（模型记得它翻过的文件与项目结构），上下文只需带上次动手之后的新消息
+      const sess = wcfg.resumeArgs ? this.buildSessions[agentId] : null;
+      const useResume = !!sess?.sessionId;
+      const promptOpts = msgs => ({
         selfName: name,
         participantNames: this.participants.map(p => this.nameOf(p)),
-        messages: this.messages.slice(0, -1), tail, limit: promptLimitFor(wcfg),
+        messages: msgs, tail, limit: promptLimitFor(wcfg),
       });
+      const built = buildPromptWithTail(promptOpts(useResume ? this.messages.slice(sess.lastSeq, -1) : this.messages.slice(0, -1)));
       if (built.blocked) throw new Error('上下文超出该模型长度上限，无法动手');
 
       wt = await createWorktree(this.workspace);
@@ -295,11 +302,24 @@ export class Workbench {
       const seq = this.messages.length;
       const buildId = 'b' + seq + Date.now().toString(36).slice(-4);
       await savePrompt(this.dir, `build-${buildId}`, agentId, built.prompt);
-      const res = await runAgent({ ...wcfg, cwd: wt }, built.prompt, {
+      const runOpts = {
         signal: this.aborter.signal,
         toolMarkers: true, // 实时可视：工具活动（正在改哪个文件）推给前端
         onChunk: t => this.emit({ type: 'build-progress', agentId, data: t }),
-      });
+      };
+      const cfgRun = { ...wcfg, cwd: wt };
+      if (useResume) cfgRun.command = [...cfgRun.command, ...wcfg.resumeArgs.map(a => a.replaceAll('{SESSION_ID}', sess.sessionId))];
+      let res = await runAgent(cfgRun, built.prompt, runOpts);
+      if (!res.ok && useResume && res.error !== 'aborted') {
+        // 续接失败（会话过期/CLI 升级等）→ 明示并用全新会话+全量上下文重试一次
+        this.emit({ type: 'sys', data: `会话续接失败（${res.error}），改用全新会话重试…` });
+        delete this.buildSessions[agentId];
+        const full = buildPromptWithTail(promptOpts(this.messages.slice(0, -1)));
+        if (!full.blocked) {
+          await savePrompt(this.dir, `build-${buildId}retry`, agentId, full.prompt);
+          res = await runAgent({ ...wcfg, cwd: wt }, full.prompt, runOpts);
+        }
+      }
       await saveRaw(this.dir, `build-${buildId}`, agentId, res.raw || res.text || res.error || '');
       if (!res.ok) {
         this.emit({ type: 'agent-status', agentId, label: 'wb', data: 'failed:' + res.error });
@@ -312,6 +332,7 @@ export class Workbench {
         const reply = { seq, from: agentId, name, text: summary, ts: new Date().toISOString() };
         this.messages.push(reply);
         this.lastSpeaker = agentId;
+        if (res.sessionId) this.buildSessions[agentId] = { sessionId: res.sessionId, lastSeq: this.messages.length };
         await this.#persist(reply);
         this.emit({ type: 'chat-message', from: agentId, name, data: summary });
         this.emit({ type: 'sys', data: '动手完成，但没有产生任何文件改动' });
@@ -327,6 +348,7 @@ export class Workbench {
       const reply = { seq, from: agentId, name, text: summary, ts: new Date().toISOString(), build: buildId };
       this.messages.push(reply);
       this.lastSpeaker = agentId;
+      if (res.sessionId) this.buildSessions[agentId] = { sessionId: res.sessionId, lastSeq: this.messages.length };
       await this.#persist(reply);
       this.emit({ type: 'chat-message', from: agentId, name, data: summary, build: { buildId, stat, status: 'pending', files, patch: patch.slice(0, 200000) } });
       this.emit({ type: 'agent-status', agentId, label: 'wb', data: 'done' });
@@ -371,6 +393,42 @@ export class Workbench {
     await this.#saveBuilds();
     this.emit({ type: 'build-status', buildId, status: b.status, files: b.files });
     this.emit({ type: 'sys', data: `已应用 ${targets.length} 个文件到主工作区（未提交——commit 权在你自己的 git 流程里）` });
+  }
+
+  // 应用前检查：临时副本 = 主工作区状态 + 该 build 的待批改动，在其中运行用户提供的命令
+  //（构建/测试），结果回报聊天流。副本随查随毁，主工作区零接触。
+  async checkBuild(buildId, cmd) {
+    if (this.state === 'busy') throw new Error('上一条消息还在处理中');
+    if (!String(cmd ?? '').trim()) throw new Error('检查命令不能为空');
+    const b = this.#buildRecordOf(buildId);
+    const pending = b.files.filter(f => f.status === 'pending');
+    if (!pending.length) throw new Error('该 diff 已无待批文件可检查');
+    this.state = 'busy';
+    this.aborter = new AbortController();
+    this.emit({ type: 'state', data: 'busy' });
+    this.emit({ type: 'sys', data: `正在临时副本中运行检查：${cmd}` });
+    let wt = null;
+    try {
+      wt = await createWorktree(this.workspace);
+      try { await syncWorktreeWithMain(this.workspace, wt); } catch { /* 干净 HEAD 兜底 */ }
+      const patch = await readFile(this.patchPathOf(buildId), 'utf8');
+      const segs = splitPatchByFile(patch);
+      const sub = b.files.length === 1 && b.files[0].path === '(全部)'
+        ? patch
+        : segs.filter(s => pending.some(t => t.path === s.path)).map(s => s.patch).join('');
+      await applyPatch(wt, sub);
+      const r = await runCommand(wt, cmd, { signal: this.aborter.signal });
+      const ok = r.code === 0;
+      b.check = { cmd: String(cmd).slice(0, 200), ok, ts: new Date().toISOString() };
+      await this.#saveBuilds();
+      this.emit({ type: 'check-result', buildId, ok, code: r.code, cmd, output: r.output.slice(-8000), ...(r.timedOut ? { timedOut: true } : {}) });
+      this.emit({ type: 'sys', data: r.timedOut ? '检查超时（5 分钟）已中止' : (ok ? '检查通过 ✓' : `检查未通过 ✗（exit ${r.code}）`) });
+    } finally {
+      if (wt) await removeWorktree(this.workspace, wt).catch(() => {});
+      this.state = 'idle';
+      this.aborter = null;
+      this.emit({ type: 'state', data: 'idle' });
+    }
   }
 
   async discardBuild(buildId, filePaths = null) {
