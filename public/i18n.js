@@ -18,6 +18,14 @@ const I18N = {
   'status.okTip': { zh: '就绪（{s}s）——点击重新检查', en: 'Ready ({s}s) — click to re-check' },
   'status.stale': { zh: '服务进程是旧版本（无此接口）——重启服务（npm start）后再检查', en: 'Server process is an older build (endpoint missing) — restart it (npm start), then re-check' },
 
+  // ---- 仲裁/书记状态芯片 ----
+  'staff.judge': { zh: '仲裁', en: 'Judge' },
+  'staff.scribe': { zh: '书记', en: 'Scribe' },
+  'staff.idle': { zh: '待命', en: 'standby' },
+  'staff.running': { zh: '运行中…', en: 'running…' },
+  'staff.done': { zh: '完成 ✓', en: 'done ✓' },
+  'staff.retryTip': { zh: '失败——点击重试（仲裁重跑裁决 / 书记重新生成本轮摘要）', en: 'Failed — click to retry (judge re-runs the verdict / scribe regenerates this round\'s summary)' },
+
   // ---- 建会议页 ----
   'setup.title': { zh: '发起一场会议', en: 'Start a meeting' },
   'setup.topicPh': { zh: '议题：要决策什么？', en: 'Topic: what are we deciding?' },

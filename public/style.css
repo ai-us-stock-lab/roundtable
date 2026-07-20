@@ -475,3 +475,5 @@ details.section[open] > summary { margin-bottom: 4px; }
 .as-checking { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .as-checkall { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted, #888); cursor: pointer; }
 .as-checkall:hover { border-color: var(--accent); color: inherit; }
+.as-chip:disabled { cursor: default; }
+.as-chip:disabled:hover { border-color: var(--line); }

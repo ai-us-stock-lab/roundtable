@@ -147,6 +147,54 @@ function appendChatMessage(from, name, text) {
   $('#chatPanel').open = true; // 有新消息时自动展开
 }
 
+// ===== 仲裁/书记常驻状态芯片：辩手有整栏状态，这两位此前只在状态栏一闪而过，
+// 失败后没有可见入口重试。芯片状态由 agent-status 事件驱动，失败可点击重试
+// （仲裁→重跑裁决，书记→重新生成本轮摘要）。=====
+let staffState = null; // { judge: {id, name, st}, scribe: {id, name, st} }；st: idle|running|done|failed:<err>
+
+function initStaffStatus(roles, agentNames) {
+  staffState = {
+    judge: { id: roles.judge, name: agentNames[roles.judge] ?? roles.judge, st: 'idle' },
+    scribe: { id: roles.summarizer, name: agentNames[roles.summarizer] ?? roles.summarizer, st: 'idle' },
+  };
+  renderStaffStatus();
+}
+
+function renderStaffStatus() {
+  const el = $('#staffStatus');
+  if (!el || !staffState) return;
+  el.hidden = false;
+  el.innerHTML = '';
+  for (const [role, s] of Object.entries(staffState)) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'as-chip';
+    const dot = document.createElement('span');
+    const failed = s.st.startsWith('failed:');
+    dot.className = 'as-dot ' + (failed ? 'as-bad' : s.st === 'running' ? 'as-checking' : s.st === 'done' ? 'as-ok' : '');
+    const stText = failed ? s.st.slice(7) : t('staff.' + s.st);
+    chip.append(dot, document.createTextNode(`${t('staff.' + role)} ${s.name} · ${stText}`));
+    if (failed) {
+      chip.title = t('staff.retryTip');
+      chip.onclick = () => {
+        s.st = 'running';
+        renderStaffStatus();
+        if (role === 'judge') api('judge');
+        else { $('#resummarize').hidden = true; api('resummarize'); }
+      };
+    } else { chip.disabled = true; }
+    el.appendChild(chip);
+  }
+}
+
+function updateStaffFromEvent(ev) {
+  if (!staffState || ev.type !== 'agent-status') return;
+  const role = ev.label === 'judge' ? 'judge' : /summary$/.test(ev.label ?? '') ? 'scribe' : null;
+  if (!role) return;
+  staffState[role].st = ev.data === 'running' ? 'running' : ev.data === 'done' ? 'done' : ev.data;
+  renderStaffStatus();
+}
+
 // 重建收件人多选：该会话全部参会 agent（辩手+仲裁+书记去重），默认勾选第一个辩手
 function renderChatRecipients(roles, agentNames) {
   const ids = [...new Set([roles.debaters[0], roles.debaters[1], roles.judge, roles.summarizer])];
@@ -182,6 +230,7 @@ function onEvent(ev) {
     node.scrollIntoView({ block: 'end' });
   }
   if (ev.type === 'agent-status') {
+    updateStaffFromEvent(ev);
     const name = cfg.agents[ev.agentId]?.name ?? ev.agentId;
     if (sideOf[ev.agentId] && isDebaterCall(ev.label)) {
       // 辩手徽标：running 时带计时器（阶段性反馈——至少让人知道跑了多久、没有卡死）
@@ -202,7 +251,7 @@ function onEvent(ev) {
     }
   }
   if (ev.type === 'chat-message') appendChatMessage(ev.from, ev.name, ev.data);
-  if (ev.type === 'summary') { $('#summary').textContent = ev.data; $('#resummarize').hidden = !/摘要失败/.test(ev.data); }
+  if (ev.type === 'summary') { $('#summary').textContent = ev.data; $('#resummarize').hidden = !/摘要失败|summary failed/.test(ev.data); }
   if (ev.type === 'round-done') { setStatebar(t('dyn.roundDone', { round: ev.round })); refreshSessionList(); }
   if (ev.type === 'state') setStatebar(t('dyn.state', { data: ev.data }));
   if (ev.type === 'error') {
@@ -246,6 +295,8 @@ function resetSessionUI() {
   const setupbar = $('#setupbar'); setupbar.textContent = ''; setupbar.hidden = true; setupbar.classList.remove('err');
   roundDivs = {};
   sideOf = {};
+  staffState = null;
+  const staff = $('#staffStatus'); staff.hidden = true; staff.innerHTML = '';
   $('#chatLog').innerHTML = '';
   $('#chatRecipients').innerHTML = '';
   $('#chatInput').value = '';
@@ -275,6 +326,7 @@ async function attach(id) {
   $('#colA .name').textContent = detail.agentNames?.[detail.roles.debaters[0]] ?? detail.roles.debaters[0];
   $('#colB .name').textContent = detail.agentNames?.[detail.roles.debaters[1]] ?? detail.roles.debaters[1];
   renderChatRecipients(detail.roles, detail.agentNames ?? {});
+  initStaffStatus(detail.roles, detail.agentNames ?? {});
   showArena();
   connectEvents(); // 回放缓冲事件重建全部内容
   await refreshSessionList();
@@ -341,6 +393,7 @@ $('#start').onclick = async () => {
   $('#colB .name').textContent = cfg.agents[roles.debaters[1]].name;
   const agentNames = Object.fromEntries(Object.entries(cfg.agents).map(([id, a]) => [id, a.name]));
   renderChatRecipients(roles, agentNames);
+  initStaffStatus(roles, agentNames);
   $('#arena').hidden = false;
   connectEvents();
   await refreshSessionList();
