@@ -21,6 +21,7 @@
     <section id="setup">
       <h1 data-i18n="setup.title">发起一场会议</h1>
       <div id="setupbar" hidden></div>
+      <div id="agentStatus" class="agent-status"></div>
       <textarea id="topic" data-i18n-ph="setup.topicPh" placeholder="议题：要决策什么？"></textarea>
       <textarea id="materials" data-i18n-ph="setup.materialsPh" placeholder="背景材料（可选）"></textarea>
       <input id="workspace" data-i18n-ph="setup.workspacePh" placeholder="项目目录（可选，绝对路径——参会 AI 将可只读查阅该目录下的文件）">
@@ -69,6 +70,7 @@
       <h1 data-i18n="wbSetup.title">开一个工作台</h1>
       <p class="hint" data-i18n="wbSetup.hint">多模型群聊：随时提问、点名任意模型接力讨论；聊到需要正式对撞时，一键升格为委员会会议。</p>
       <div id="wbSetupBar" hidden></div>
+      <div id="wbAgentStatus" class="agent-status"></div>
       <input id="wbName" data-i18n-ph="wbSetup.namePh" placeholder="给这个工作台起个名（可选）">
       <input id="wbWorkspace" data-i18n-ph="wbSetup.workspacePh" placeholder="项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）">
       <div id="wbParticipants"></div>

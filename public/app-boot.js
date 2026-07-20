@@ -16,6 +16,7 @@ async function boot() {
   $('#judge').innerHTML = opts('judge');
   $('#summ').innerHTML = opts('summarizer');
   $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${localizeField(t.title)}</option>`).join('');
+  renderAgentStatus();
   await refreshSessionList();
   await applyDraftFromHash();
   // 页面已开着时又发起新会议（仅 hash 变化不重载）→ 同样要预填
@@ -43,5 +44,55 @@ $('#newBenchBtn').onclick = () => {
 };
 
 $('#langToggle').onclick = () => setLang(LANG === 'zh' ? 'en' : 'zh');
+
+// ===== 引擎状态灯：灰=未检查 绿=就绪 红=故障。检查=一次真实 CLI 最小调用（消耗额度），
+// 只由用户显式触发（点单灯或「检查全部」），绝不自动轮询。=====
+function renderAgentStatus() {
+  for (const el of [$('#agentStatus'), $('#wbAgentStatus')]) {
+    if (!el) continue;
+    el.innerHTML = '';
+    const label = document.createElement('span');
+    label.className = 'as-label';
+    label.textContent = t('status.engines');
+    el.appendChild(label);
+    for (const [id, a] of Object.entries(cfg.agents)) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'as-chip';
+      chip.dataset.agent = id;
+      const st = a.unavailable ? 'bad' : (a.smoke ? (a.smoke.ok ? 'ok' : 'bad') : 'unknown');
+      const dot = document.createElement('span');
+      dot.className = 'as-dot as-' + st;
+      chip.title = a.unavailable ? a.unavailable
+        : a.smoke ? (a.smoke.ok ? t('status.okTip', { s: Math.max(1, Math.round((a.smoke.durationMs ?? 0) / 1000)) }) : (a.smoke.error ?? ''))
+        : t('status.unknownTip');
+      chip.append(dot, document.createTextNode(a.name));
+      if (!a.unavailable) chip.onclick = () => smokeAgent(id);
+      el.appendChild(chip);
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'as-checkall';
+    btn.textContent = t('status.checkAll');
+    btn.onclick = smokeAllAgents;
+    el.appendChild(btn);
+  }
+}
+
+async function smokeAgent(id) {
+  document.querySelectorAll(`.as-chip[data-agent="${CSS.escape(id)}"] .as-dot`)
+    .forEach(d => { d.className = 'as-dot as-checking'; });
+  let r;
+  try { r = await (await fetch(`/api/agents/${encodeURIComponent(id)}/smoke`, { method: 'POST' })).json(); }
+  catch (e) { r = { ok: false, error: e.message }; }
+  if (r.error && r.ok === undefined) r = { ok: false, error: r.error }; // 409 等错误响应归一
+  cfg.agents[id].smoke = r;
+  renderAgentStatus();
+}
+
+async function smokeAllAgents() {
+  // 串行：控成本，也避免多个 CLI 同时抢登录态刷新
+  for (const [id, a] of Object.entries(cfg.agents)) if (!a.unavailable) await smokeAgent(id);
+}
 
 boot();

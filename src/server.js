@@ -7,6 +7,7 @@ import { Workbench, loadWorkbenchFromDisk } from './workbench.js';
 import { loadTemplates } from './templates.js';
 import { resolveCliPath } from './resolve.js';
 import { redact } from './redactor.js';
+import { runAgent } from './runner.js';
 
 // 静态文件白名单（无通用静态服务，杜绝路径穿越）
 const STATIC = {
@@ -64,6 +65,10 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
     }
   }
   const templates = await loadTemplates(templatesDir);
+  // 就绪检查（状态灯）：启动时的路径解析只能发现「找不到 CLI」，auth 过期等运行时故障
+  // 要真调用一次才暴露。结果存内存（重启清零），随 /api/config 下发供前端亮灯。
+  const smokeStatus = {}; // agentId -> { ok, error?, durationMs, ts }
+  const smokeInflight = new Set();
   const sessions = new Map();
   const benches = new Map(); // 工作台会话（与委员会平行的顶层类型）：{ bench, events, clients, updatedAt }
   const drafts = new Map(); // 外部 AI（项目对话侧）预填的议题+简报草稿，浏览器 #draft=<id> 打开即填入表单
@@ -145,7 +150,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       }
       if (url.pathname === '/api/config') {
         // 只暴露 name/roles/unavailable，不泄漏 command/envWhitelist 等 adapter 细节
-        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, ...(a.unavailable ? { unavailable: a.unavailable } : {}) }]));
+        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, { title: t.title }]));
         return json(res, 200, { agents: pub, templates: tpl });
       }
@@ -176,6 +181,26 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         } catch { /* sessionsDir 尚不存在 */ }
         archived.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))); // 归档按最近更新在前
         return json(res, 200, [...active, ...activeBenches, ...archived]);
+      }
+      // 就绪检查：对单个 agent 做一次真实最小调用（验证 CLI 可启动 + 登录态有效）。
+      // 由用户在界面上显式触发——每次消耗一次真实额度，绝不自动轮询。
+      if (url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/smoke') && req.method === 'POST') {
+        const id = url.pathname.slice('/api/agents/'.length, -'/smoke'.length);
+        const a = agents[id];
+        if (!a) return json(res, 404, { error: '未知 agent: ' + id });
+        if (a.unavailable) {
+          smokeStatus[id] = { ok: false, error: a.unavailable, ts: new Date().toISOString() };
+          return json(res, 200, smokeStatus[id]);
+        }
+        if (smokeInflight.has(id)) return json(res, 409, { error: 'smoke already running' });
+        smokeInflight.add(id);
+        try {
+          const cfg = structuredClone(a);
+          cfg.timeoutMs = Math.min(cfg.timeoutMs ?? 300000, 90000); // 就绪检查不该等满整个正常上限
+          const r = await runAgent(cfg, 'Health check. Reply with the single word: ok');
+          smokeStatus[id] = { ok: r.ok, ...(r.ok ? {} : { error: r.error }), durationMs: r.durationMs, ts: new Date().toISOString() };
+          return json(res, 200, smokeStatus[id]);
+        } finally { smokeInflight.delete(id); }
       }
       if (url.pathname === '/api/draft' && req.method === 'POST') {
         const body = await readBody(req);

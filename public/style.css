@@ -458,3 +458,20 @@ details.section[open] > summary { margin-bottom: 4px; }
   details.round > summary { top: 31px; }
   #statebar { top: 4px; }
 }
+
+/* ===== 引擎状态灯（建会/建台页顶部）===== */
+.agent-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px; }
+.agent-status:empty { display: none; }
+.as-label { font-size: 12px; color: var(--muted, #888); }
+.as-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer;
+}
+.as-chip:hover { border-color: var(--accent); }
+.as-dot { width: 8px; height: 8px; border-radius: 50%; background: #8b949e; }
+.as-ok { background: var(--ok); }
+.as-bad { background: var(--err); }
+.as-checking { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.as-checkall { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted, #888); cursor: pointer; }
+.as-checkall:hover { border-color: var(--accent); color: inherit; }

@@ -24,6 +24,16 @@ test('GET /api/config 返回 agents 与 templates 且不泄漏 command', async (
   assert.ok(r.templates.general);
 });
 
+test('agents smoke: 真实调用返回 ok 并缓存进 /api/config；未知 agent 404', async () => {
+  const r = await (await fetch(`${BASE}/api/agents/mockA/smoke`, { method: 'POST' })).json();
+  assert.equal(r.ok, true);
+  assert.ok(r.durationMs >= 0);
+  const cfg = await (await fetch(BASE + '/api/config')).json();
+  assert.equal(cfg.agents.mockA.smoke.ok, true); // 灯的状态随 config 下发，刷新页面不丢
+  const nf = await fetch(`${BASE}/api/agents/nope/smoke`, { method: 'POST' });
+  assert.equal(nf.status, 404);
+});
+
 test('创建会话→跑一轮→SSE 收到 round-done', async () => {
   const create = await (await fetch(BASE + '/api/sessions', {
     method: 'POST', headers: { 'content-type': 'application/json' },
