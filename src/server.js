@@ -195,9 +195,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         if (smokeInflight.has(id)) return json(res, 409, { error: 'smoke already running' });
         smokeInflight.add(id);
         try {
-          const cfg = structuredClone(a);
-          cfg.timeoutMs = Math.min(cfg.timeoutMs ?? 300000, 90000); // 就绪检查不该等满整个正常上限
-          const r = await runAgent(cfg, 'Health check. Reply with the single word: ok');
+          // 超时沿用该 adapter 自己声明的 timeoutMs：慢引擎（如 OpenClaw 正常要 ~3 分钟）
+          // 用统一的短上限会被误判 timeout——健康检查不能比引擎的已知特性更急躁
+          const r = await runAgent(structuredClone(a), 'Health check. Reply with the single word: ok');
           smokeStatus[id] = { ok: r.ok, ...(r.ok ? {} : { error: r.error }), durationMs: r.durationMs, ts: new Date().toISOString() };
           return json(res, 200, smokeStatus[id]);
         } finally { smokeInflight.delete(id); }
