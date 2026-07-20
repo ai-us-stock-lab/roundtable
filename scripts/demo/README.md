@@ -1,9 +1,11 @@
 # Roundtable 演示视频生成器
 
-这套脚本把 `docs/demo-storyboard.md` 里的五句旁白原样抽取出来，按四个主镜头录制真实 Roundtable UI，并生成：
+这套脚本复用同一条 Playwright + ElevenLabs + ffmpeg 管线，按 `--lang` 从对应 storyboard 原样抽取五句旁白，录制真实 Roundtable UI，并生成：
 
 - `docs/demo.mp4`：60–90 秒、1920×1080、H.264 + AAC、中文配音与烧录字幕；
 - `docs/demo.gif`：约 14 秒、无声、≤8MB 的 README 精简版。
+- `docs/demo-en.mp4`：同规格英文配音版，不覆盖中文视频；
+- `docs/demo-en.gif`：英文 UI 的无声 README 精简版。
 
 Roundtable 根 `package.json` 不会增加任何依赖。Playwright、ElevenLabs 官方 SDK、Edge TTS 和静态 ffmpeg/ffprobe 都只安装在本目录。
 
@@ -24,13 +26,19 @@ npm.cmd --prefix scripts/demo run install:browser
 
 1. `http://127.0.0.1:7777` 已运行当前仓库的 Roundtable；
 2. `claude` 与 `codex` 已安装并登录；
-3. 已购买 ElevenLabs 套餐，并在当前终端设置 `ELEVENLABS_API_KEY` 与 `ELEVENLABS_VOICE_ID`；
+3. 已购买 ElevenLabs 套餐，并在当前终端设置 `ELEVENLABS_API_KEY` 与 `ELEVENLABS_VOICE_ID`；也可分别设置 `ELEVENLABS_VOICE_ID_ZH`、`ELEVENLABS_VOICE_ID_EN`；
 4. 录制期间不要在演示仓库或 Roundtable 会话里放敏感信息。
 
 然后在仓库根目录运行：
 
 ```powershell
 npm.cmd --prefix scripts/demo run demo
+```
+
+生成英文版（不会覆盖中文产物）：
+
+```powershell
+npm.cmd --prefix scripts/demo run demo -- --lang en
 ```
 
 密钥不要写进脚本、`.env` 或仓库。可在 PowerShell 当前会话中安全输入：
@@ -50,6 +58,9 @@ $env:ELEVENLABS_VOICE_ID = '<从 Voice Library 复制的 voice ID>'
 ```powershell
 # 默认正式配音；也可显式传 voice ID
 npm.cmd --prefix scripts/demo run demo -- --tts elevenlabs --voice "<voice-id>"
+
+# 英文 UI、英文模型台词、英文旁白，输出 docs/demo-en.mp4 和 docs/demo-en.gif
+npm.cmd --prefix scripts/demo run demo -- --lang en
 
 # 免费 Edge TTS 仅供显式测试；失败会直接报错
 npm.cmd --prefix scripts/demo run demo -- --tts edge
@@ -91,7 +102,7 @@ npm.cmd --prefix scripts/demo run demo -- --mock
 4. 让 Codex 在隔离 worktree 改 README，等待 diff 卡片后展开；
 5. 点击单文件“应用”，检查真实 `git status`、`git diff`，并验证 `HEAD` 没变化；
 6. 将真实 git 输出放进录屏内的临时终端卡，再切到“+ 会议”收尾；
-7. ElevenLabs Multilingual v2 逐句配音，并传入前后文保持连续性；失败时直接中止，绝不自动退回 SAPI；
+7. 按 `--lang` 读取中文或英文 storyboard；ElevenLabs Multilingual v2 逐句配音，并传入前后文保持连续性；失败时直接中止，绝不自动退回 SAPI；
 8. ffmpeg 剪掉模型等待、对齐五段旁白、烧录字幕并校验时长/分辨率/音轨；
 9. 软删除本次工作台，将会话移到 `sessions/.trash`，不会清理你的其他会话。
 
@@ -103,12 +114,12 @@ subst R: /d
 
 ## 交付前必须人工确认
 
-- 从头到尾完整观看 `docs/demo.mp4`，确认没有 API key、token、真实敏感路径、无关会话标题；
+- 从头到尾完整观看对应语言的 MP4，确认没有 API key、token、真实敏感路径、无关会话标题；
 - 中文人名、CLI 名称与“Roundtable”的读音是否自然；
 - ElevenLabs 套餐余额、API key、voice ID 与所选普通话声音是否仍然可用；
 - Claude/Codex 登录与订阅额度是否可用；
 - diff 卡片和“✓ 已应用”是否看清，等待空档是否已剪掉；
-- `docs/demo.gif` 是否 ≤15 秒且 ≤8MB；
+- 对应语言的 GIF 是否 ≤15 秒且 ≤8MB；
 - 配音属于 AI 生成语音，公开使用时按发布场景保留适当披露。
 
-脚本不会替你 `git commit`、不会 push。它只写 `docs/demo.mp4`、可选 `docs/demo.gif`、被 git 忽略的中间目录与一条可恢复的演示会话记录。
+脚本不会替你 `git commit`、不会 push。它只写对应语言的 `docs/demo*.mp4`、可选 `docs/demo*.gif`、被 git 忽略的中间目录与一条可恢复的演示会话记录。

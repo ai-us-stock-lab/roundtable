@@ -1,7 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CUE_SPECS, DOCS_DIR, VIEWPORT, WORK_DIR, parseCliArgs } from './config.mjs';
+import { DOCS_DIR, VIEWPORT, WORK_DIR, cueSpecsFor, outputPathsFor, parseCliArgs } from './config.mjs';
 import { formatBytes, runOrThrow } from './lib.mjs';
 
 function numeric(value, digits = 3) {
@@ -36,8 +36,16 @@ function assTime(totalSeconds) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
-function subtitleText(text) {
+function subtitleText(text, lang) {
   const chars = Array.from(text.replace(/[{}]/g, ''));
+  if (lang === 'en') {
+    if (chars.length <= 58) return chars.join('');
+    const source = chars.join('');
+    const middle = Math.floor(source.length / 2);
+    const spaces = [...source.matchAll(/\s+/g)].map(match => match.index);
+    const split = spaces.sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle))[0] || middle;
+    return `${source.slice(0, split).trim()}\\N${source.slice(split).trim()}`;
+  }
   if (chars.length <= 30) return chars.join('');
   let split = Math.ceil(chars.length / 2);
   for (let offset = 0; offset < 8; offset += 1) {
@@ -52,7 +60,9 @@ function subtitleText(text) {
   return `${chars.slice(0, split).join('')}\\N${chars.slice(split).join('')}`;
 }
 
-function buildAss(scenes) {
+function buildAss(scenes, lang) {
+  const font = lang === 'en' ? 'Segoe UI' : 'Microsoft YaHei';
+  const fontSize = lang === 'en' ? 44 : 48;
   const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${VIEWPORT.width}
@@ -62,7 +72,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Microsoft YaHei,48,&H00FFFFFF,&H000000FF,&HCC111418,&H99000000,0,0,0,0,100,100,0,0,1,3,1,2,120,120,58,1
+Style: Default,${font},${fontSize},&H00FFFFFF,&H000000FF,&HCC111418,&H99000000,0,0,0,0,100,100,0,0,1,3,1,2,120,120,58,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -70,7 +80,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const lines = scenes.map(scene => {
     const start = scene.start + 0.55;
     const end = Math.min(scene.start + scene.duration - 0.3, start + scene.audioDuration + 0.5);
-    return `Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${subtitleText(scene.text)}`;
+    return `Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${subtitleText(scene.text, lang)}`;
   });
   return header + lines.join('\n') + '\n';
 }
@@ -108,7 +118,7 @@ async function makeScene({ ffmpeg, source, rawDuration, cue, segments, audio, au
   return { ...cue, output, duration, audioDuration, visualDuration };
 }
 
-async function makeGif({ ffmpeg, outputVideo, scenes }) {
+async function makeGif({ ffmpeg, outputVideo, output, scenes }) {
   const byId = Object.fromEntries(scenes.map(scene => [scene.id, scene]));
   const windows = [
     [byId['shot-1'].start + byId['shot-1'].duration - 2.5, byId['shot-1'].start + byId['shot-1'].duration],
@@ -122,7 +132,6 @@ async function makeGif({ ffmpeg, outputVideo, scenes }) {
     { width: 840, fps: 10, colors: 112 },
     { width: 720, fps: 8, colors: 96 },
   ];
-  const output = path.join(DOCS_DIR, 'demo.gif');
   for (const candidate of candidates) {
     const parts = windows.map(([start, end], index) => (
       `[0:v]trim=start=${numeric(start)}:end=${numeric(end)},setpts=PTS-STARTPTS[g${index}]`
@@ -143,13 +152,17 @@ async function makeGif({ ffmpeg, outputVideo, scenes }) {
       return output;
     }
   }
-  throw new Error('docs/demo.gif 经过三档压缩仍超过 8MB；已停止交付，避免生成不合约束的 GIF');
+  throw new Error(`${path.basename(output)} 经过三档压缩仍超过 8MB；已停止交付，避免生成不合约束的 GIF`);
 }
 
 export async function composeDemo(options = {}) {
+  const cueSpecs = cueSpecsFor(options.lang);
+  const outputs = outputPathsFor(options.lang);
   const { ffmpeg, ffprobe } = await loadMediaTools();
   const timeline = JSON.parse(await readFile(path.join(WORK_DIR, 'timeline.json'), 'utf8'));
   const voice = JSON.parse(await readFile(path.join(WORK_DIR, 'voice-manifest.json'), 'utf8'));
+  if (timeline.lang && timeline.lang !== options.lang) throw new Error('录屏语言与当前 --lang 不一致');
+  if (voice.lang && voice.lang !== options.lang) throw new Error('旁白语言与当前 --lang 不一致');
   const voiceById = Object.fromEntries(voice.clips.map(clip => [clip.id, clip]));
   const rawInfo = await probeMedia(ffprobe, timeline.source);
   const rawDuration = Number(rawInfo.format.duration);
@@ -157,8 +170,8 @@ export async function composeDemo(options = {}) {
   await mkdir(sceneDir, { recursive: true });
 
   const scenes = [];
-  for (let index = 0; index < CUE_SPECS.length; index += 1) {
-    const cue = CUE_SPECS[index];
+  for (let index = 0; index < cueSpecs.length; index += 1) {
+    const cue = cueSpecs[index];
     const audio = voiceById[cue.id];
     if (!audio) throw new Error(`缺少 ${cue.id} 的旁白音轨`);
     const audioInfo = await probeMedia(ffprobe, audio.path);
@@ -193,9 +206,9 @@ export async function composeDemo(options = {}) {
   ], { timeoutMs: 300_000, cwd: WORK_DIR });
 
   const assPath = path.join(WORK_DIR, 'subtitles.ass');
-  await writeFile(assPath, buildAss(scenes), 'utf8');
+  await writeFile(assPath, buildAss(scenes, options.lang), 'utf8');
   await mkdir(DOCS_DIR, { recursive: true });
-  const outputVideo = path.join(DOCS_DIR, 'demo.mp4');
+  const outputVideo = outputs.video;
   await runOrThrow(ffmpeg, [
     '-y', '-i', joined,
     '-vf', `ass=${path.basename(assPath)}`,
@@ -211,14 +224,15 @@ export async function composeDemo(options = {}) {
   if (videoStream?.width !== VIEWPORT.width || videoStream?.height !== VIEWPORT.height) {
     throw new Error(`成片分辨率不是 ${VIEWPORT.width}×${VIEWPORT.height}`);
   }
-  if (!audioStream) throw new Error('成片缺少中文旁白音轨');
+  if (!audioStream) throw new Error('成片缺少旁白音轨');
   const size = (await stat(outputVideo)).size;
   console.log(`[compose] MP4 完成：${numeric(duration, 1)} 秒，${videoStream.width}×${videoStream.height}，${formatBytes(size)}`);
 
   let gif = null;
-  if (options.gif !== false) gif = await makeGif({ ffmpeg, outputVideo, scenes });
+  if (options.gif !== false) gif = await makeGif({ ffmpeg, outputVideo, output: outputs.gif, scenes });
   const report = {
     version: 1,
+    lang: options.lang,
     outputVideo,
     gif,
     duration,

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ROOT_DIR, WORK_DIR } from './config.mjs';
 
-export async function startMockServer(url) {
+export async function startMockServer(url, lang = 'zh') {
   const parsed = new URL(url);
   if (!['127.0.0.1', 'localhost'].includes(parsed.hostname)) {
     throw new Error('--mock 只允许绑定本机回环地址');
@@ -34,13 +34,13 @@ export async function startMockServer(url) {
     claude: {
       ...common,
       name: 'Claude',
-      command: [process.execPath, cliPath, 'claude'],
+      command: [process.execPath, cliPath, 'claude', lang],
     },
     codex: {
       ...common,
       name: 'Codex',
-      command: [process.execPath, cliPath, 'codex'],
-      writeArgs: [cliPath, 'codex'],
+      command: [process.execPath, cliPath, 'codex', lang],
+      writeArgs: [cliPath, 'codex', lang],
     },
   };
   await writeFile(agentsFile, JSON.stringify(agents, null, 2), 'utf8');

@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BUILD_PROMPT, CHAT_PROMPT, VIEWPORT, WORK_DIR, parseCliArgs } from './config.mjs';
+import { VIEWPORT, WORK_DIR, demoCopyFor, parseCliArgs } from './config.mjs';
 import { runOrThrow } from './lib.mjs';
 import { createDemoWorkspace } from './workspace.mjs';
 import { preflight } from './preflight.mjs';
@@ -12,7 +12,7 @@ function elapsedMs(origin) {
   return Date.now() - origin;
 }
 
-async function installPresentationLayer(page) {
+async function installPresentationLayer(page, lang) {
   await page.addStyleTag({ content: `
     #sessionList { visibility: hidden !important; }
     body { cursor: none !important; }
@@ -44,11 +44,53 @@ async function installPresentationLayer(page) {
     #demo-terminal .prompt { color: #64d98b; }
     #demo-terminal .proof { color: #8fbaff; }
   ` });
-  await page.evaluate(() => {
+  await page.evaluate(lang => {
     const pointer = document.createElement('div');
     pointer.id = 'demo-pointer';
     document.body.appendChild(pointer);
-  });
+    if (lang !== 'en') return;
+
+    // Roundtable 的静态 UI 已支持英文，但少量工作台事件文本来自服务端中文状态。
+    // 这里只本地化录制页的展示文本，不修改会话数据、API 响应或产品代码。
+    const localize = root => {
+      const scope = root?.querySelectorAll ? root : document;
+      const select = selector => [
+        ...(root?.matches?.(selector) ? [root] : []),
+        ...scope.querySelectorAll(selector),
+      ];
+      for (const node of select('.chat-name')) {
+        const translated = node.textContent
+          .replace(/^用户\b|^用户(?=\s|→|$)/, 'User')
+          .replaceAll('、', ', ')
+          .replace(/\s*动手$/, ' build');
+        if (translated !== node.textContent) node.textContent = translated;
+      }
+      for (const node of select('.wb-sys')) {
+        let translated = node.textContent;
+        translated = translated
+          .replace(/^互聊开始：/, 'Relay started: ')
+          .replace(/，至多\s*(\d+)\s*轮$/, ', up to $1 rounds')
+          .replace(/^互聊结束（完成）$/, 'Relay finished (complete)')
+          .replace(/^(.+?) 开始动手（隔离副本，主工作区零接触）…$/, '$1 started building in an isolated copy; the main worktree is untouched…')
+          .replace(/^已应用\s*(\d+)\s*个文件到主工作区（未提交——commit 权在你自己的 git 流程里）$/, 'Applied $1 file to the main worktree (not committed—commits remain in your git workflow).');
+        if (translated !== node.textContent) node.textContent = translated;
+      }
+      for (const option of select('#tpl option')) {
+        if (option.textContent.startsWith('协作开发')) {
+          option.textContent = 'Collaborative development';
+        }
+      }
+    };
+    localize(document);
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        if (record.type === 'characterData' && record.target.parentElement) localize(record.target.parentElement);
+        for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) localize(node);
+      }
+    });
+    observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+    window.__roundtableDemoI18nObserver = observer;
+  }, lang);
 }
 
 async function hold(page, ms) {
@@ -125,14 +167,14 @@ async function waitForWorkbenchResult(page, { minAgentMessages, minBuildCards = 
   if (result.error) throw new Error(result.error);
 }
 
-async function showTerminalProof(page, status, diff, diffCommand) {
-  await page.evaluate(({ status, diff, diffCommand }) => {
+async function showTerminalProof(page, status, diff, diffCommand, heading) {
+  await page.evaluate(({ status, diff, diffCommand, heading }) => {
     document.querySelector('#demo-terminal')?.remove();
     const panel = document.createElement('section');
     panel.id = 'demo-terminal';
     const head = document.createElement('div');
     head.className = 'term-head';
-    head.textContent = 'Roundtable Demo · 真实 git 输出（路径已省略）';
+    head.textContent = heading;
     const pre = document.createElement('pre');
     const p1 = document.createElement('span');
     p1.className = 'prompt';
@@ -147,7 +189,7 @@ async function showTerminalProof(page, status, diff, diffCommand) {
     pre.append(p1, s1, p2, s2);
     panel.append(head, pre);
     document.body.appendChild(panel);
-  }, { status, diff, diffCommand });
+  }, { status, diff, diffCommand, heading });
 }
 
 async function verifyAppliedChange(workspace) {
@@ -166,6 +208,7 @@ async function verifyAppliedChange(workspace) {
 }
 
 export async function recordDemo(options, workspace) {
+  const copy = demoCopyFor(options.lang);
   const { chromium } = await import('playwright');
   const rawDir = path.join(WORK_DIR, 'raw');
   await mkdir(rawDir, { recursive: true });
@@ -174,9 +217,10 @@ export async function recordDemo(options, workspace) {
     viewport: VIEWPORT,
     recordVideo: { dir: rawDir, size: VIEWPORT },
     colorScheme: 'dark',
-    locale: 'zh-CN',
+    locale: copy.locale,
   });
   const page = await context.newPage();
+  await page.addInitScript(lang => localStorage.setItem('rt-lang', lang), options.lang);
   const video = page.video();
   const videoOrigin = Date.now();
   const segments = [];
@@ -193,7 +237,7 @@ export async function recordDemo(options, workspace) {
 
   try {
     await page.goto(options.url, { waitUntil: 'networkidle', timeout: 30_000 });
-    await installPresentationLayer(page);
+    await installPresentationLayer(page, options.lang);
     await hold(page, 600);
 
     await segment('shot-1', '打开并创建工作台', async () => {
@@ -205,11 +249,11 @@ export async function recordDemo(options, workspace) {
         const id = await box.getAttribute('value');
         await setChecked(page, box, ['claude', 'codex'].includes(id));
       }
-      await visualFill(page, page.locator('#wbName'), 'README 演示工作台');
+      await visualFill(page, page.locator('#wbName'), copy.workbenchName);
       await visualFill(page, page.locator('#wbWorkspace'), workspace.displayPath);
       await visualClick(page, page.locator('#wbCreate'));
       await page.locator('#workbench').waitFor({ state: 'visible', timeout: 20_000 });
-      await page.waitForFunction(() => document.querySelector('#wbTitle')?.textContent.includes('README 演示工作台'));
+      await page.waitForFunction(name => document.querySelector('#wbTitle')?.textContent.includes(name), copy.workbenchName);
       workbenchId = await page.evaluate(() => (typeof wbId === 'string' ? wbId : null));
       await hold(page, 1600);
     });
@@ -223,7 +267,7 @@ export async function recordDemo(options, workspace) {
     await segment('shot-2', '向两个模型发消息', async () => {
       await setChecked(page, recipients.claude, true);
       await setChecked(page, recipients.codex, true);
-      await visualFill(page, page.locator('#wbInput'), CHAT_PROMPT);
+      await visualFill(page, page.locator('#wbInput'), copy.chatPrompt);
       await visualClick(page, page.locator('#wbSend'));
       await waitForBusySignal(page, { previousAgentMessages: messagesBeforeChat });
       await hold(page, 900);
@@ -260,7 +304,7 @@ export async function recordDemo(options, workspace) {
     await segment('shot-3', '让 Codex 在隔离副本动手', async () => {
       await setChecked(page, recipients.claude, false);
       await setChecked(page, recipients.codex, true);
-      await visualFill(page, page.locator('#wbInput'), BUILD_PROMPT);
+      await visualFill(page, page.locator('#wbInput'), copy.buildPrompt);
       await visualClick(page, page.locator('#wbBuild'));
       await waitForBusySignal(page, { previousAgentMessages: messagesBeforeBuild, previousBuildCards: buildsBefore });
       await hold(page, 1400);
@@ -279,14 +323,15 @@ export async function recordDemo(options, workspace) {
     });
 
     await segment('shot-4', '逐文件审批应用', async () => {
-      const apply = buildCard.locator('.build-file summary button').filter({ hasText: /^应用$/ }).first();
+      const apply = buildCard.locator('.build-file summary').first()
+        .getByRole('button', { name: copy.applyLabel, exact: true });
       await visualClick(page, apply);
       await page.waitForFunction(() => (
         [...document.querySelectorAll('.build-card .bf-st')].some(node => node.dataset.st === 'applied')
       ), null, { timeout: 30_000 });
       await hold(page, 2200);
       const proof = await verifyAppliedChange(workspace);
-      await showTerminalProof(page, proof.status, proof.diff, proof.diffCommand);
+      await showTerminalProof(page, proof.status, proof.diff, proof.diffCommand, copy.terminalHeading);
       await hold(page, 5200);
     });
 
@@ -320,6 +365,7 @@ export async function recordDemo(options, workspace) {
     segments,
     recordedAt: new Date().toISOString(),
     mode: options.mock ? 'mock' : 'real',
+    lang: options.lang,
   };
   const timelinePath = path.join(WORK_DIR, 'timeline.json');
   await writeFile(timelinePath, JSON.stringify(timeline, null, 2), 'utf8');
@@ -332,7 +378,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   let workspace;
   try {
     await preflight(options);
-    workspace = await createDemoWorkspace();
+    workspace = await createDemoWorkspace(options);
     await recordDemo(options, workspace);
   } catch (error) {
     console.error('[record] ' + error.message);

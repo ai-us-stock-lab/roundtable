@@ -1,7 +1,7 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DEFAULT_URL, ROOT_DIR, parseCliArgs, HELP_TEXT } from './config.mjs';
+import { DEFAULT_URL, ROOT_DIR, elevenLabsVoiceIdFor, parseCliArgs, HELP_TEXT } from './config.mjs';
 import { fetchJson, redactLocalPaths, run } from './lib.mjs';
 
 async function checkDependency(name, hint) {
@@ -37,8 +37,8 @@ export async function preflight(options = {}) {
     if (!process.env.ELEVENLABS_API_KEY?.trim()) {
       throw new Error('缺少 ELEVENLABS_API_KEY；请在当前终端设置，不要把密钥写入仓库');
     }
-    if (!options.voice?.trim() && !process.env.ELEVENLABS_VOICE_ID?.trim()) {
-      throw new Error('缺少 ElevenLabs voice ID；请设置 ELEVENLABS_VOICE_ID 或传入 --voice <voice-id>');
+    if (!elevenLabsVoiceIdFor(options)) {
+      throw new Error('缺少 ElevenLabs voice ID；请设置 ELEVENLABS_VOICE_ID、对应语言变量或传入 --voice <voice-id>');
     }
   }
   if (options.tts === 'edge') {

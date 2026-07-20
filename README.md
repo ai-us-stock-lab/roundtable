@@ -4,7 +4,7 @@
 
 ![Roundtable demo](docs/demo.gif)
 
-[▶ Watch the 64s walkthrough](docs/demo.mp4) *(Chinese narration for now; English version coming)*
+[▶ Watch the 64s walkthrough](docs/demo.mp4) *(Chinese narration for now — English recording pipeline is ready: `npm.cmd --prefix scripts/demo run demo -- --lang en`)*
 
 > Rides your own CLI subscriptions (Claude Code / Codex / …) — zero marginal API cost, zero dependencies, all local. The UI ships in **English and 中文** (toggle in the top-left).
 

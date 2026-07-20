@@ -9,6 +9,7 @@ import {
   DEFAULT_EDGE_VOICE,
   DEMO_DIR,
   WORK_DIR,
+  elevenLabsVoiceIdFor,
   loadNarrations,
   parseCliArgs,
 } from './config.mjs';
@@ -23,12 +24,12 @@ async function prepareVoiceDir() {
 
 function requiredElevenLabsConfig(options) {
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
-  const voiceId = options.voice?.trim() || process.env.ELEVENLABS_VOICE_ID?.trim();
+  const voiceId = elevenLabsVoiceIdFor(options);
   if (!apiKey) {
     throw new Error('缺少 ELEVENLABS_API_KEY；请在当前终端设置环境变量，不要把密钥写进仓库');
   }
   if (!voiceId) {
-    throw new Error('缺少 ElevenLabs voice ID；请设置 ELEVENLABS_VOICE_ID 或传入 --voice <voice-id>');
+    throw new Error('缺少 ElevenLabs voice ID；请设置 ELEVENLABS_VOICE_ID、对应语言变量或传入 --voice <voice-id>');
   }
   return { apiKey, voiceId };
 }
@@ -122,7 +123,7 @@ async function sapiTts(narrations, voiceDir, requestedVoice) {
 }
 
 export async function synthesizeNarrations(options = {}) {
-  const narrations = await loadNarrations();
+  const narrations = await loadNarrations(options.lang);
   const voiceDir = await prepareVoiceDir();
   const requested = options.tts ?? 'elevenlabs';
   let manifest;
@@ -139,7 +140,7 @@ export async function synthesizeNarrations(options = {}) {
   else throw new Error(`不支持的 TTS provider: ${requested}`);
 
   const manifestPath = path.join(WORK_DIR, 'voice-manifest.json');
-  await writeFile(manifestPath, JSON.stringify({ version: 1, ...manifest }, null, 2), 'utf8');
+  await writeFile(manifestPath, JSON.stringify({ version: 1, lang: options.lang, ...manifest }, null, 2), 'utf8');
   console.log(`[voice] 旁白生成完成（${manifest.provider} / ${manifest.voice}）`);
   return { manifestPath, manifest };
 }

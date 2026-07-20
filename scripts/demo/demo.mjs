@@ -21,7 +21,7 @@ async function main() {
   let workspace;
   let succeeded = false;
   try {
-    if (options.mock) mockServer = await startMockServer(options.url);
+    if (options.mock) mockServer = await startMockServer(options.url, options.lang);
     if (options.isolatedServer) {
       // 保留原始前提：先确认用户的 7777 服务确实在运行；录制用临时端口，避免重启或污染它。
       await fetchJson(`${DEFAULT_URL}/api/config`);
@@ -32,7 +32,7 @@ async function main() {
       mockServerStarted: !!mockServer,
       engineSmoke: options.mock ? false : options.engineSmoke,
     });
-    workspace = await createDemoWorkspace();
+    workspace = await createDemoWorkspace(options);
     console.log(`[demo] 演示仓库：${workspace.displayPath}（退出时自动清理）`);
     await recordDemo(options, workspace);
     await synthesizeNarrations(options);

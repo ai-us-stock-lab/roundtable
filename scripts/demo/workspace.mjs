@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { EXPECTED_README_LINE } from './config.mjs';
+import { demoCopyFor } from './config.mjs';
 import { run, runOrThrow } from './lib.mjs';
 
 const DRIVE_CANDIDATES = ['R:', 'S:', 'T:', 'V:'];
@@ -17,7 +17,8 @@ async function mapNeutralWindowsDrive(parentDir) {
   throw new Error('无法创建中性演示盘符；为避免录入真实用户路径，录制已停止');
 }
 
-export async function createDemoWorkspace() {
+export async function createDemoWorkspace(options = {}) {
+  const copy = demoCopyFor(options.lang);
   const tempBase = await mkdtemp(path.join(os.tmpdir(), 'roundtable-demo-'));
   const repoPath = path.join(tempBase, 'roundtable-demo');
   await mkdir(repoPath);
@@ -62,5 +63,5 @@ export async function createDemoWorkspace() {
     process.once('exit', () => spawnSync('subst.exe', [mappedDrive, '/d'], { windowsHide: true }));
   }
 
-  return { repoPath, displayPath, initialHead, expectedLine: EXPECTED_README_LINE, mappedDrive, cleanup };
+  return { repoPath, displayPath, initialHead, expectedLine: copy.expectedReadmeLine, mappedDrive, cleanup };
 }
