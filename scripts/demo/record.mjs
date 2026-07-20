@@ -138,6 +138,12 @@ async function visualFill(page, locator, text) {
   await hold(page, 220);
 }
 
+async function visualSelect(page, locator, value) {
+  await pointAt(page, locator);
+  await locator.selectOption(value);
+  await hold(page, 320);
+}
+
 async function setChecked(page, locator, checked) {
   if ((await locator.isChecked()) !== checked) await visualClick(page, locator);
 }
@@ -147,9 +153,10 @@ async function waitForBusySignal(page, { previousAgentMessages, previousBuildCar
     document.querySelector('.chat-typing')
     || document.querySelector('.build-live')
     || document.querySelector('#wbSend')?.disabled
+    || document.querySelector('#wbBuild')?.disabled
     // mock 或极快 CLI 可能在下一帧前已回到 idle；出现新结果同样证明动作已触发。
     || document.querySelectorAll('.chat-msg.chat-agent:not(.chat-typing)').length > previousAgentMessages
-    || document.querySelectorAll('.build-card').length > previousBuildCards
+    || document.querySelectorAll('#wbChangesList .build-card').length > previousBuildCards
   ), { previousAgentMessages, previousBuildCards }, { timeout: 20_000 });
 }
 
@@ -159,7 +166,7 @@ async function waitForWorkbenchResult(page, { minAgentMessages, minBuildCards = 
     if (errors.length > previousErrorCount) return { error: errors.at(-1).textContent };
     const idle = !document.querySelector('#wbSend')?.disabled;
     const agentMessages = document.querySelectorAll('.chat-msg.chat-agent:not(.chat-typing)').length;
-    const buildCards = document.querySelectorAll('.build-card').length;
+    const buildCards = document.querySelectorAll('#wbChangesList .build-card').length;
     if (idle && agentMessages >= minAgentMessages && buildCards >= minBuildCards) return { ok: true };
     return false;
   }, { minAgentMessages, minBuildCards, previousErrorCount }, { timeout: MODEL_TIMEOUT_MS });
@@ -240,10 +247,10 @@ export async function recordDemo(options, workspace) {
     await installPresentationLayer(page, options.lang);
     await hold(page, 600);
 
-    await segment('shot-1', '打开并创建工作台', async () => {
-      await visualClick(page, page.locator('#newBenchBtn'));
+    await segment('shot-1', '从默认建台页创建工作台', async () => {
       await page.locator('#wbSetup').waitFor({ state: 'visible' });
-      const participantBoxes = page.locator('#wbParticipants input[type=checkbox]');
+      await page.locator('#newBenchBtn').waitFor({ state: 'visible' });
+      const participantBoxes = page.locator('#wbParticipants input[type=checkbox]:not(.wb-arbiter)');
       for (let index = 0; index < await participantBoxes.count(); index += 1) {
         const box = participantBoxes.nth(index);
         const id = await box.getAttribute('value');
@@ -298,13 +305,14 @@ export async function recordDemo(options, workspace) {
       await hold(page, 4400);
     });
 
-    const buildsBefore = await page.locator('.build-card').count();
+    const buildsBefore = await page.locator('#wbChangesList .build-card').count();
     const messagesBeforeBuild = await page.locator('.chat-msg.chat-agent:not(.chat-typing)').count();
     const errorsBeforeBuild = await page.locator('.wb-error').count();
-    await segment('shot-3', '让 Codex 在隔离副本动手', async () => {
-      await setChecked(page, recipients.claude, false);
-      await setChecked(page, recipients.codex, true);
-      await visualFill(page, page.locator('#wbInput'), copy.buildPrompt);
+    await segment('shot-3', '在右侧变更栏指派 Codex 修改', async () => {
+      await page.locator('#wbChanges').waitFor({ state: 'visible' });
+      await visualSelect(page, page.locator('#wbActor'), 'codex');
+      await page.waitForFunction(() => document.querySelector('#wbBuild')?.textContent.includes('Codex'));
+      await visualFill(page, page.locator('#wbTask'), copy.buildPrompt);
       await visualClick(page, page.locator('#wbBuild'));
       await waitForBusySignal(page, { previousAgentMessages: messagesBeforeBuild, previousBuildCards: buildsBefore });
       await hold(page, 1400);
@@ -314,8 +322,8 @@ export async function recordDemo(options, workspace) {
       minBuildCards: buildsBefore + 1,
       previousErrorCount: errorsBeforeBuild,
     });
-    const buildCard = page.locator('.build-card').last();
-    await segment('shot-3', '展开真实 diff', async () => {
+    const buildCard = page.locator('#wbChangesList .build-card').last();
+    await segment('shot-3', '在右侧变更栏展开真实 diff', async () => {
       await buildCard.scrollIntoViewIfNeeded();
       const details = buildCard.locator('.build-file details').first();
       if (!(await details.evaluate(node => node.open))) await visualClick(page, details.locator('summary'));
@@ -326,19 +334,18 @@ export async function recordDemo(options, workspace) {
       const apply = buildCard.locator('.build-file summary').first()
         .getByRole('button', { name: copy.applyLabel, exact: true });
       await visualClick(page, apply);
-      await page.waitForFunction(() => (
-        [...document.querySelectorAll('.build-card .bf-st')].some(node => node.dataset.st === 'applied')
-      ), null, { timeout: 30_000 });
+      await buildCard.locator('.bf-st[data-st=applied]').first().waitFor({ state: 'attached', timeout: 30_000 });
       await hold(page, 2200);
       const proof = await verifyAppliedChange(workspace);
       await showTerminalProof(page, proof.status, proof.diff, proof.diffCommand, copy.terminalHeading);
       await hold(page, 5200);
     });
 
-    await segment('outro', '切到正式会议入口', async () => {
+    await segment('outro', '点击就此开会进入预填会议表单', async () => {
       await page.evaluate(() => document.querySelector('#demo-terminal')?.remove());
-      await visualClick(page, page.locator('#newSessionBtn'));
+      await visualClick(page, page.locator('#wbPromote'));
       await page.locator('#setup').waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelector('#topic')?.value.trim().length > 0);
       await hold(page, 3000);
     });
     completed = true;

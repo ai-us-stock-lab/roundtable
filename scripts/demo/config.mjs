@@ -29,16 +29,16 @@ export const DEFAULT_ELEVENLABS_VOICE_SETTINGS = Object.freeze({
 // 四个主镜头 + 镜头 4 尾部的收尾。最短时长合计 62 秒。
 const CUE_SPECS_BY_LANG = Object.freeze({
   zh: [
-    { id: 'shot-1', title: '开工作台', minDuration: 10 },
+    { id: 'shot-1', title: '建立工作台', minDuration: 10 },
     { id: 'shot-2', title: '多模型与互聊', minDuration: 15 },
-    { id: 'shot-3', title: '动手改文件', minDuration: 18 },
+    { id: 'shot-3', title: '右栏指派修改', minDuration: 18 },
     { id: 'shot-4', title: '审批与落地证据', minDuration: 13 },
-    { id: 'outro', title: '正式会议收尾', minDuration: 6 },
+    { id: 'outro', title: '就此开会收尾', minDuration: 6 },
   ],
   en: [
-    { id: 'shot-1', title: 'Open a workbench', minDuration: 10 },
+    { id: 'shot-1', title: 'Create a workbench', minDuration: 10 },
     { id: 'shot-2', title: 'Multi-model chat and relay', minDuration: 15 },
-    { id: 'shot-3', title: 'Change a file in isolation', minDuration: 18 },
+    { id: 'shot-3', title: 'Assign a change from the side panel', minDuration: 18 },
     { id: 'shot-4', title: 'Review and apply the diff', minDuration: 13 },
     { id: 'outro', title: 'Escalate to a committee', minDuration: 6 },
   ],
