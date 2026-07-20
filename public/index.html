@@ -111,6 +111,14 @@
             <span class="wb-action-hint" data-i18n="wb.actionHint">在项目的隔离副本中真实改文件；产出 diff 逐文件审批后才落入你的工作区</span>
           </div>
           <div id="wbChangesList"></div>
+          <details id="wbRoleHelp" class="wb-role-help">
+            <summary data-i18n="wb.helpTitle">❓ 角色说明</summary>
+            <p data-i18n="wb.helpTalk">讨论者：只动嘴——参与全部讨论与评审，永不碰你的文件。</p>
+            <p data-i18n="wb.helpPropose">提案者：讨论者 + 可被指派修改——在项目的隔离副本里真实改文件，产出变更（diff）；每个文件落进你的工作区前都需你批准。</p>
+            <p data-i18n="wb.helpArbiter">仲裁者：提案者 + 冲突职责——多个变更打架时整理各方 pro/con 供你拍板，你选定后由它执行融合。</p>
+            <p data-i18n="wb.helpDecide">「替我决断」：授权仲裁者在冲突时直接选边并融合（过程留痕）。无论哪档，应用进工作区的批准权永远在你。</p>
+            <p data-i18n="wb.helpNoWrite">为何有的引擎只能当讨论者：写权需要该引擎声明「安全写模式」——隔离副本管住改动不外溢，安全写模式管住过程不越权，缺一层就不给写权。在 adapters/agents.json 为其补上 writeArgs 即可解锁。</p>
+          </details>
         </aside>
       </div>
     </section>
