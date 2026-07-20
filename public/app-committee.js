@@ -41,6 +41,22 @@ function startBadgeTimer(side) {
 }
 function stopBadgeTimer(side) { if (badgeTimers[side]) { clearInterval(badgeTimers[side]); delete badgeTimers[side]; } }
 
+// ===== 简明视图（默认开）：流式期间轮次保持展开（此时还没有提炼物），
+// 书记摘要一到就折叠该轮原文——中栏滚动摘要即每轮的提炼层，原文点开可看 =====
+let denseMode = localStorage.getItem('rt-dense') !== '0';
+
+function collapseRounds() {
+  document.querySelectorAll('details.round').forEach(d => { d.open = false; });
+}
+
+function applyViewMode() {
+  const btn = $('#viewToggle');
+  btn.textContent = denseMode ? t('arena.viewFull') : t('arena.viewDense');
+  btn.title = t('arena.viewToggleTitle');
+  if (denseMode) collapseRounds();
+  else document.querySelectorAll('details.round').forEach(d => { d.open = true; });
+}
+
 function ensureRoundDiv(side, label) {
   const key = side + label;
   if (!roundDivs[key]) {
@@ -227,7 +243,7 @@ function onEvent(ev) {
       node = pre;
     }
     node.textContent += ev.data;            // textContent：天然防 XSS
-    node.scrollIntoView({ block: 'end' });
+    if (node.offsetParent) node.scrollIntoView({ block: 'end' }); // 折叠中的轮次不滚动（简明视图回放时）
   }
   if (ev.type === 'agent-status') {
     updateStaffFromEvent(ev);
@@ -251,7 +267,11 @@ function onEvent(ev) {
     }
   }
   if (ev.type === 'chat-message') appendChatMessage(ev.from, ev.name, ev.data);
-  if (ev.type === 'summary') { $('#summary').textContent = ev.data; $('#resummarize').hidden = !/摘要失败|summary failed/.test(ev.data); }
+  if (ev.type === 'summary') {
+    $('#summary').textContent = ev.data;
+    $('#resummarize').hidden = !/摘要失败|summary failed/.test(ev.data);
+    if (denseMode) collapseRounds(); // 提炼物已就位，原文退场
+  }
   if (ev.type === 'round-done') { setStatebar(t('dyn.roundDone', { round: ev.round })); refreshSessionList(); }
   if (ev.type === 'state') setStatebar(t('dyn.state', { data: ev.data }));
   if (ev.type === 'error') {
@@ -407,6 +427,12 @@ $('#next').onclick = async () => { await sendNote(); await api('round'); };
 $('#auto').onclick = async () => { await sendNote(); await api('auto', { maxRounds: Number($('#maxR').value) }); };
 // 独立插话入口：自动跑期间「下一轮/自动跑完」不可用，这是轮间投放插话的唯一通道
 $('#sendNoteBtn').onclick = () => sendNote({ announce: true });
+$('#viewToggle').onclick = () => {
+  denseMode = !denseMode;
+  localStorage.setItem('rt-dense', denseMode ? '1' : '0');
+  applyViewMode();
+};
+applyViewMode(); // 初始按钮文案与状态
 $('#note').addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'Enter') sendNote({ announce: true }); });
 $('#stop').onclick = () => api('stop');
 $('#dojudge').onclick = () => api('judge');

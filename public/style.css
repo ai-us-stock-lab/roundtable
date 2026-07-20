@@ -477,3 +477,5 @@ details.section[open] > summary { margin-bottom: 4px; }
 .as-checkall:hover { border-color: var(--accent); color: inherit; }
 .as-chip:disabled { cursor: default; }
 .as-chip:disabled:hover { border-color: var(--line); }
+.view-toggle { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted, #888); cursor: pointer; margin: 0 0 8px; align-self: flex-start; }
+.view-toggle:hover { border-color: var(--accent); color: inherit; }
