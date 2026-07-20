@@ -229,6 +229,9 @@ const I18N = {
   'wb.meetingVerdictExpand': { zh: '展开裁决卡', en: 'Expand verdict card' },
   'wb.openMeeting': { zh: '打开会场', en: 'Open meeting' },
   'wb.meetingGone': { zh: '找不到该会议(可能已删除)', en: 'Meeting not found (it may have been deleted)' },
+  'setup.roleBriefs': { zh: '角色分工', en: 'Role assignments' },
+  'setup.roleBriefA': { zh: '辩手 A · 视角', en: 'Debater A · Perspective' },
+  'setup.roleBriefB': { zh: '辩手 B · 视角', en: 'Debater B · Perspective' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');

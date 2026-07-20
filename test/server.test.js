@@ -22,6 +22,8 @@ test('GET /api/config 返回 agents 与 templates 且不泄漏 command', async (
   assert.ok(r.agents.mockA);
   assert.equal(r.agents.mockA.command, undefined);
   assert.ok(r.templates.general);
+  assert.ok(r.templates.consult.roleBriefs.debaterA.zh);
+  assert.equal(r.templates.general.roleBriefs, undefined);
 });
 
 test('agents smoke: 真实调用返回 ok 并缓存进 /api/config；未知 agent 404', async () => {

@@ -41,6 +41,15 @@ export class Committee {
     if (v && typeof v === 'object') return v[this.lang] ?? v.zh ?? v.en ?? '';
     return v ?? '';
   }
+  // 辩手角色跟随席位而非 agent 身份：同一 agent 换席后应获得新席位的职责视角
+  seatBriefOf(agentId) {
+    const [debaterA, debaterB] = this.roles.debaters;
+    const key = agentId === debaterA ? 'debaterA' : agentId === debaterB ? 'debaterB' : '';
+    if (!key) return '';
+    const v = this.template.roleBriefs?.[key];
+    if (v && typeof v === 'object') return v[this.lang] ?? v.zh ?? v.en ?? '';
+    return v ?? '';
+  }
   latestSummary() { return this.history.at(-1)?.summary ?? ''; }
   // 追加而非覆盖：下一轮开跑前的多次插话都要保留（自动跑轮间插话是常规操作）
   interject(text) { this.userNote = this.userNote ? this.userNote + '\n' + text : text; }
@@ -73,7 +82,8 @@ export class Committee {
   }
 
   async buildBrief(agentId, opponentId) {
-    const injection = await resolveInjection(this.template, agentId);
+    const seatBrief = this.seatBriefOf(agentId);
+    const injection = [await resolveInjection(this.template, agentId), seatBrief].filter(Boolean).join('\n\n');
     if (this.round === 1) {
       // clean room：R1 构建路径上没有任何对手数据可引用
       return buildDebaterR1({

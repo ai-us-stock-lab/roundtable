@@ -50,6 +50,34 @@ test('第 1 轮是 clean room：双方简报互不含对方内容', async () => 
   assert.ok(c.history[0].summary.length > 0);
 });
 
+test('buildBrief 按辩手席位隔离 roleBriefs，并按 zh/en 会话语言本地化', async () => {
+  const template = {
+    name: 'seat-brief-test', injections: {}, debaterFormat: '', judgeFormat: '', copyJudgeCardTo: null,
+    roleBriefs: {
+      debaterA: { zh: 'A席中文简报_MARKER', en: 'A_SEAT_EN_BRIEF_MARKER' },
+      debaterB: { zh: 'B席中文简报_MARKER', en: 'B_SEAT_EN_BRIEF_MARKER' },
+    },
+  };
+  for (const [lang, ownA, ownB, wrongA, wrongB] of [
+    ['zh', 'A席中文简报_MARKER', 'B席中文简报_MARKER', 'A_SEAT_EN_BRIEF_MARKER', 'B_SEAT_EN_BRIEF_MARKER'],
+    ['en', 'A_SEAT_EN_BRIEF_MARKER', 'B_SEAT_EN_BRIEF_MARKER', 'A席中文简报_MARKER', 'B席中文简报_MARKER'],
+  ]) {
+    const { c } = makeCommittee({ template, lang });
+    c.round = 1;
+    const briefA = await c.buildBrief('a', 'b');
+    const briefB = await c.buildBrief('b', 'a');
+    assert.ok(briefA.includes(ownA), lang + ': A 席应收到自己的简报');
+    assert.ok(!briefA.includes(ownB), lang + ': A 席不应收到 B 席简报');
+    assert.ok(briefB.includes(ownB), lang + ': B 席应收到自己的简报');
+    assert.ok(!briefB.includes(ownA), lang + ': B 席不应收到 A 席简报');
+    assert.ok(!briefA.includes(wrongA) && !briefB.includes(wrongB), lang + ': 不应混入另一语言');
+    c.round = 2;
+    c.history = [{ summary: 'previous summary', outputs: { a: { text: 'previous A' }, b: { text: 'previous B' } } }];
+    assert.ok((await c.buildBrief('a', 'b')).includes(ownA), lang + ': RN 仍应收到 A 席简报');
+    assert.ok((await c.buildBrief('b', 'a')).includes(ownB), lang + ': RN 仍应收到 B 席简报');
+  }
+});
+
 test('第 2 轮简报含 summary、对方发言与主持人插话', async () => {
   const { c } = makeCommittee();
   await c.init();

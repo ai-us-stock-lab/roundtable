@@ -238,6 +238,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           title: t.title,
           debaterFormat: t.debaterFormat,
           judgeFormat: t.judgeFormat,
+          roleBriefs: t.roleBriefs,
         }]));
         return json(res, 200, { agents: pub, templates: tpl, stale: await backendStale() });
       }

@@ -33,6 +33,15 @@ function renderTemplatePreview() {
   if (!template) return;
   $('#tplDebaterFormat').textContent = localizeField(template.debaterFormat);
   $('#tplJudgeFormat').textContent = localizeField(template.judgeFormat) || t('setup.defaultJudgeFormat');
+  const roleSection = $('#tplRoleBriefs');
+  roleSection.hidden = !template.roleBriefs;
+  if (!template.roleBriefs) {
+    $('#tplRoleBriefA').textContent = '';
+    $('#tplRoleBriefB').textContent = '';
+    return;
+  }
+  $('#tplRoleBriefA').textContent = localizeField(template.roleBriefs.debaterA);
+  $('#tplRoleBriefB').textContent = localizeField(template.roleBriefs.debaterB);
 }
 
 $('#newSessionBtn').onclick = () => {

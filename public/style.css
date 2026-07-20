@@ -644,3 +644,13 @@ details.section[open] > summary { margin-bottom: 4px; }
 @media (prefers-reduced-motion: reduce) {
   .wb-meeting-open { transition: none; }
 }
+
+/* ===== 模板预览：按席位的角色分工 ===== */
+.tpl-role-briefs { grid-column: 1 / -1; }
+.tpl-role-brief-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+}
+.tpl-role-brief h3 { margin: 0 0 6px; color: var(--dim); font-size: 12px; }
+@media (max-width: 700px) {
+  .tpl-role-brief-grid { grid-template-columns: 1fr; }
+}

@@ -27,6 +27,12 @@ test('loadTemplates 扫描目录', async () => {
   assert.equal(tpls.demo.title, '演示');
 });
 
+test('真实 consult 模板含席位简报，general 保持无预设立场', async () => {
+  const tpls = await loadTemplates('templates');
+  assert.ok(tpls.consult.roleBriefs.debaterA.zh.trim());
+  assert.equal(tpls.general.roleBriefs, undefined);
+});
+
 test('resolveInjection 拼接文件内容；无配置返回空串', async () => {
   const tpls = await loadTemplates(makeTplDir());
   assert.match(await resolveInjection(tpls.demo, 'claude'), /SKILL_A_CONTENT/);
