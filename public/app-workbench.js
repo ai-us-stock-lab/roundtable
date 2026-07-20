@@ -28,6 +28,7 @@ function setWbBusy(busy) {
   $('#wbSend').disabled = busy;
   $('#wbSend').textContent = busy ? t('dyn.replying') : t('wb.send');
   $('#wbRelay').disabled = busy;
+  $('#wbBuild').disabled = busy;
   $('#wbStop').hidden = !busy;
 }
 
@@ -341,8 +342,6 @@ async function attachWorkbench(id) {
     ws.title = t('dyn.mounted', { path: info.workspace });
     members.appendChild(ws);
   }
-  // 动手按钮：挂了工作区且有可写模型才出现
-  $('#wbBuild').hidden = !(info.workspace && (info.writeCapable ?? []).length);
   $('#wbLog').innerHTML = '';
   wbInfo = info;
   wbLastSpeaker = null;
@@ -414,24 +413,33 @@ function updateWbRouteHint() {
     const target = wbInfo.participants.includes(wbLastSpeaker) ? wbLastSpeaker : wbInfo.participants[0];
     hint.textContent = t('wb.routeHint', { name: wbInfo.agentNames[target] ?? target });
   }
-  updateWbBuildBtn();
+  renderWbActionPanel(); // 成员/能力变化同步动手面板
 }
 
-// 动手按钮显式指向：勾选恰好一位可动手模型 → 「动手（<名字>）」可点；否则禁用并说明条件
-function updateWbBuildBtn() {
-  const btn = $('#wbBuild');
-  if (!wbInfo || btn.hidden) return;
-  const checked = [...$('#wbRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
-  const capable = checked.filter(id => (wbInfo.writeCapable ?? []).includes(id));
-  if (checked.length === 1 && capable.length === 1) {
-    btn.disabled = false;
-    btn.textContent = t('wb.buildWith', { name: wbInfo.agentNames[capable[0]] ?? capable[0] });
-    btn.title = t('wb.buildTitle');
-  } else {
-    btn.disabled = true;
-    btn.textContent = t('wb.build');
-    btn.title = t('dyn.buildNeedOne');
+// 动手面板：独立 section——执行者显式指定（下拉），任务专用输入框，不再挪用聊天框/收件人勾选
+function renderWbActionPanel() {
+  const panel = $('#wbActionPanel');
+  if (!wbInfo) { panel.hidden = true; return; }
+  const capable = wbInfo.participants.filter(id => (wbInfo.writeCapable ?? []).includes(id));
+  panel.hidden = !(wbInfo.workspace && capable.length);
+  if (panel.hidden) return;
+  const sel = $('#wbActor');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  for (const id of capable) {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = wbInfo.agentNames[id] ?? id;
+    sel.appendChild(o);
   }
+  if (capable.includes(prev)) sel.value = prev; // 成员变动后尽量保住已选执行者
+  syncWbBuildLabel();
+}
+
+function syncWbBuildLabel() {
+  const sel = $('#wbActor');
+  const name = sel.selectedOptions[0]?.textContent;
+  $('#wbBuild').textContent = name ? t('wb.buildWith', { name }) : t('wb.build');
 }
 
 async function changeParticipants(op, agentId) {
@@ -440,8 +448,7 @@ async function changeParticipants(op, agentId) {
   catch (e) { return appendWbError(t('dyn.netErr', { msg: e.message })); }
   if (r.error) return appendWbError(r.error);
   Object.assign(wbInfo, r); // participants/agentNames/writeCapable 局部刷新
-  $('#wbBuild').hidden = !(wbInfo.workspace && (wbInfo.writeCapable ?? []).length);
-  renderWbRecipients();
+  renderWbRecipients(); // 动手面板随 updateWbRouteHint 链同步
 }
 
 async function resumeWorkbench(dirname) {
@@ -488,20 +495,22 @@ $('#wbRelay').onclick = async () => {
 $('#wbStop').onclick = () => { if (wbId) fetch(`/api/workbenches/${wbId}/stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); };
 $('#wbBuild').onclick = async () => {
   if (!wbId) return;
-  const text = $('#wbInput').value.trim();
+  const text = $('#wbTask').value.trim();
   if (!text) return appendWbError(t('dyn.buildNeedText'));
-  const checked = [...$('#wbRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
-  const capable = (wbInfo?.writeCapable ?? []);
-  if (checked.length !== 1) return appendWbError(t('dyn.buildNeedOne'));
-  if (!capable.includes(checked[0])) return appendWbError(t('dyn.buildNotCapable'));
-  $('#wbInput').value = '';
+  const agentId = $('#wbActor').value;
+  if (!agentId) return appendWbError(t('dyn.buildNotCapable'));
+  $('#wbTask').value = '';
   let r;
-  try { r = await (await fetch(`/api/workbenches/${wbId}/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, agentId: checked[0] }) })).json(); }
+  try { r = await (await fetch(`/api/workbenches/${wbId}/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, agentId }) })).json(); }
   catch (e) { return appendWbError(t('dyn.netErr', { msg: e.message })); }
   if (r.error) appendWbError(r.error);
 };
+$('#wbActor').onchange = syncWbBuildLabel;
 $('#wbInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendWbMessage(); }
+});
+$('#wbTask').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#wbBuild').onclick(); }
 });
 $('#wbPromote').onclick = async () => {
   if (!wbId) return;
