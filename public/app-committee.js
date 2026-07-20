@@ -475,6 +475,7 @@ $('#chatInput').addEventListener('keydown', e => {
 });
 $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre').textContent);
 async function doFlowback(target) {
+  setStatebar(t('dyn.flowbackBusy')); // 归档目标要先从磁盘恢复，可能有一两秒——给进行中反馈
   let r;
   try { r = await (await fetch(`/api/sessions/${sid}/flowback`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(target ? { target } : {}) })).json(); }
   catch (e) { return setStatebar(t('dyn.flowbackFail', { msg: e.message }), true); }
@@ -482,7 +483,12 @@ async function doFlowback(target) {
   await attachWorkbench(r.benchId); // 裁决卡已贴回，切到工作台接着聊
 }
 $('#flowback').onclick = () => doFlowback();
-$('#flowbackGo').onclick = () => { const v = $('#flowbackTarget').value; if (v) doFlowback(v); };
+$('#flowbackGo').onclick = async () => {
+  const v = $('#flowbackTarget').value;
+  if (!v) return setStatebar(t('dyn.flowbackPickFirst'), true); // 没选目标必须有提示，不能静默
+  $('#flowbackGo').disabled = true;
+  try { await doFlowback(v); } finally { $('#flowbackGo').disabled = false; }
+};
 for (const [sel, side] of [['#colA', 'A'], ['#colB', 'B']]) {
   $(sel + ' .retry').onclick = () => api('retry', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });
   $(sel + ' .skip').onclick = () => api('skip', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });

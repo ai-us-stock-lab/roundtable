@@ -51,6 +51,8 @@ const I18N = {
   'arena.flowback': { zh: '回流到来源工作台', en: 'Send back to workbench' },
   'arena.flowbackTitle': { zh: '把裁决卡作为一条消息贴回升格前的工作台，接着聊', en: 'Post the verdict card back to the workbench it was promoted from' },
   'arena.flowbackGo': { zh: '投放', en: 'Send' },
+  'dyn.flowbackPickFirst': { zh: '请先在下拉框选择目标工作台，再点「投放」', en: 'Pick a target workbench in the dropdown first, then hit Send' },
+  'dyn.flowbackBusy': { zh: '投放中……（归档工作台需先恢复，稍等一两秒）', en: 'Sending… (an archived workbench is being restored first)' },
   'arena.flowbackPick': { zh: '投放裁决卡到工作台…', en: 'Send verdict to a workbench…' },
   'arena.groupChat': { zh: '群聊', en: 'Group chat' },
   'arena.groupChatToggle': { zh: '展开/收起群聊', en: 'Toggle group chat' },
