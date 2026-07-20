@@ -16,6 +16,7 @@ async function boot() {
   $('#judge').innerHTML = opts('judge');
   $('#summ').innerHTML = opts('summarizer');
   $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${localizeField(t.title)}</option>`).join('');
+  $('#staleBanner').hidden = !cfg.stale; // 前端新后端旧 → 常驻横幅提醒重启
   renderAgentStatus();
   await refreshSessionList();
   await applyDraftFromHash();

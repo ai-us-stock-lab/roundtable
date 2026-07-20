@@ -8,6 +8,7 @@ const I18N = {
   'sidebar.newWorkbench': { zh: '+ 工作台', en: '+ Workbench' },
   'sidebar.empty': { zh: '还没有会话记录', en: 'No sessions yet' },
   'sidebar.summaryTip': { zh: '书记的滚动摘要与分歧分类表会出现在这里', en: "The scribe's rolling summary and disagreement table appear here" },
+  'sidebar.stale': { zh: '⟳ 服务端代码已更新——重启服务后生效（start-server.cmd）', en: '⟳ Backend code has changed — restart the server (start-server.cmd) to pick it up' },
   'lang.toggle': { zh: 'EN', en: '中文' },
   'lang.toggleTitle': { zh: 'Switch to English', en: '切换到中文' },
 
@@ -49,6 +50,8 @@ const I18N = {
   'arena.copy': { zh: '复制', en: 'Copy' },
   'arena.flowback': { zh: '回流到来源工作台', en: 'Send back to workbench' },
   'arena.flowbackTitle': { zh: '把裁决卡作为一条消息贴回升格前的工作台，接着聊', en: 'Post the verdict card back to the workbench it was promoted from' },
+  'arena.flowbackGo': { zh: '投放', en: 'Send' },
+  'arena.flowbackPick': { zh: '投放裁决卡到工作台…', en: 'Send verdict to a workbench…' },
   'arena.groupChat': { zh: '群聊', en: 'Group chat' },
   'arena.groupChatToggle': { zh: '展开/收起群聊', en: 'Toggle group chat' },
   'arena.groupChatHint': { zh: '基于本场会议上下文，与参会 AI 讨论', en: 'Discuss with participants, grounded in this meeting' },

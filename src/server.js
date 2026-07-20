@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, writeFile, readdir, rm, rename, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rm, rename, mkdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
@@ -52,6 +52,19 @@ export function deriveWriteAgents(agents, ids) {
 }
 
 export async function startServer({ port = 7777, agentsFile = 'adapters/agents.json', templatesDir = 'templates', sessionsDir = 'sessions' } = {}) {
+  // 「前端新后端旧」错配检测：前端文件按请求现读、后端代码进程启动时定格。
+  // src/*.js 磁盘 mtime 晚于进程启动 → 下发 stale 标记，前端亮「重启生效」横幅。
+  const serverStartedMs = Date.now();
+  const backendStale = async () => {
+    try {
+      for (const f of await readdir('src')) {
+        if (!f.endsWith('.js')) continue;
+        const { mtimeMs } = await stat(path.join('src', f));
+        if (mtimeMs > serverStartedMs) return true;
+      }
+    } catch { /* 探测失败按不陈旧处理 */ }
+    return false;
+  };
   const agents = JSON.parse(await readFile(agentsFile, 'utf8'));
   // 启动时解析每个 agent 的 CLI 路径；解析失败不阻塞服务启动，只标记该 agent 不可用
   for (const [id, a] of Object.entries(agents)) {
@@ -152,7 +165,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         // 只暴露 name/roles/unavailable，不泄漏 command/envWhitelist 等 adapter 细节
         const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, { title: t.title }]));
-        return json(res, 200, { agents: pub, templates: tpl });
+        return json(res, 200, { agents: pub, templates: tpl, stale: await backendStale() });
       }
       if (url.pathname === '/api/sessions' && req.method === 'GET') {
         const activeDirs = new Set([
@@ -166,6 +179,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const activeBenches = [...benches.entries()].map(([id, entry]) => ({
           id, topic: '[工作台] ' + (entry.bench.name || (entry.bench.lang === 'en' ? 'unnamed' : '未命名')), state: entry.bench.state,
           round: entry.bench.messages.length, archived: false, updatedAt: entry.updatedAt, type: 'workbench',
+          dirname: entry.bench.dir ? path.basename(entry.bench.dir) : '', // 裁决卡投放等按目录名寻址的操作用
           pending: entry.bench.builds.filter(b => b.status === 'pending').length, // 待批 diff 数
         }));
         let archived = [];
@@ -585,18 +599,20 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           case 'save-partial': return fire(() => c.savePartial());
           case 'resummarize': return fire(() => c.resummarize());
           case 'flowback': {
-            // 裁决卡回流到来源工作台：活动的直接用，不在内存则从磁盘恢复
-            if (!c.origin) return json(res, 400, { error: '该会议并非从工作台升格而来' });
+            // 裁决卡投放工作台：默认回升格来源；无来源（草稿直建/手建）可用 body.target 指定任意工作台目录名。
+            // target 在 resumeBenchFromDisk 内走白名单精确匹配，无路径穿越面。
+            const target = String(body.target ?? '') || c.origin;
+            if (!target) return json(res, 400, { error: '该会议无来源工作台——请指定投放目标（target）' });
             let card;
             try { card = await readFile(path.join(c.dir, 'judge-card.md'), 'utf8'); }
             catch { return json(res, 400, { error: '尚无裁决卡——先「进入裁决」' }); }
             try {
-              const benchId = findActiveBenchId(c.origin) ?? await resumeBenchFromDisk(c.origin);
+              const benchId = findActiveBenchId(target) ?? await resumeBenchFromDisk(target);
               await benches.get(benchId).bench.note(benches.get(benchId).bench.lang === 'en'
                 ? '[Verdict flowback] From meeting "' + c.topic + '"\n\n' + card.trim()
                 : '【会议裁决回流】来自会议「' + c.topic + '」\n\n' + card.trim());
               return json(res, 200, { benchId });
-            } catch (e) { return json(res, 404, { error: '来源工作台已不存在或无法恢复: ' + String(e.message ?? e) }); }
+            } catch (e) { return json(res, 404, { error: '目标工作台不存在或无法恢复: ' + String(e.message ?? e) }); }
           }
           case 'rename': {
             // 只改展示标题（同步进 metadata）；后续轮次 prompt 中的议题随之更新——改名以澄清议题为目的，属预期行为
