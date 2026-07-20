@@ -14,12 +14,11 @@
       <button id="langToggle" title="Switch to English">EN</button>
     </div>
     <div id="staleBanner" class="stale-banner" hidden data-i18n="sidebar.stale">服务端代码已更新——重启服务后生效（start-server.cmd）</div>
-    <button id="newSessionBtn" data-i18n="sidebar.newMeeting">+ 会议</button>
-    <button id="newBenchBtn" data-i18n="sidebar.newWorkbench">+ 工作台</button>
+    <button id="newBenchBtn" data-i18n="sidebar.start">+ 开始</button>
     <div id="sessionList"></div>
   </aside>
   <div id="mainContent">
-    <section id="setup">
+    <section id="setup" hidden>
       <h1 data-i18n="setup.title">发起一场会议</h1>
       <div id="setupbar" hidden></div>
       <div id="agentStatus" class="agent-status"></div>
@@ -70,7 +69,7 @@
       <div class="col side-b" id="colB"><h2><span class="name"></span> <span class="badge"></span><span class="roundnav"></span>
         <span class="colactions"><button class="retry" data-i18n="arena.retry">重试</button><button class="skip" data-i18n="arena.skip">跳过</button></span></h2><div class="feed"></div></div>
     </main>
-    <section id="wbSetup" hidden>
+    <section id="wbSetup">
       <h1 data-i18n="wbSetup.title">开一个工作台</h1>
       <p class="hint" data-i18n="wbSetup.hint">多模型群聊：随时提问、点名任意模型接力讨论；聊到需要正式对撞时，一键升格为委员会会议。</p>
       <div id="wbSetupBar" hidden></div>
@@ -79,6 +78,7 @@
       <input id="wbWorkspace" data-i18n-ph="wbSetup.workspacePh" placeholder="项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）">
       <div id="wbParticipants"></div>
       <button id="wbCreate" class="primary" data-i18n="wbSetup.create">开聊</button>
+      <button id="newSessionBtn" class="linklike" data-i18n="wbSetup.advancedMeeting" data-i18n-title="wbSetup.advancedMeetingTitle" title="不经工作台直接开一场正式会议（一般建议先聊，聊到分歧再「就此开会」）">直接开一场独立会议 →</button>
     </section>
     <section id="workbench" hidden>
       <div id="wbHead">

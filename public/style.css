@@ -523,3 +523,8 @@ details.section[open] > summary { margin-bottom: 4px; }
 .wb-role-help { margin-top: auto; border-top: 1px dashed var(--line); padding-top: 8px; font-size: 12px; color: var(--muted, #888); }
 .wb-role-help summary { cursor: pointer; }
 .wb-role-help p { margin: 6px 0 0; line-height: 1.55; }
+
+/* ===== 统一容器：侧栏母子分组 + 建台页高级入口 ===== */
+.session-child { margin-left: 14px; border-left: 2px solid var(--line); width: auto; }
+.linklike { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: 12.5px; padding: 2px 0; text-align: left; justify-self: start; }
+.linklike:hover { text-decoration: underline; }

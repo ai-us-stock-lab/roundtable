@@ -21,6 +21,7 @@ async function applyDraftFromHash() {
     // 发起方建议的模板也一并选好（例如项目会诊）——模板选错会导致顾问输出结构完全不对题
     if (d.template && [...$('#tpl').options].some(o => o.value === d.template)) $('#tpl').value = d.template;
     if (d.workspace) $('#workspace').value = d.workspace;
+    showSetup(); // 统一容器后默认落地页是建台页——草稿链路要显式切到会议表单
     draftOrigin = d.originBench ?? null;
     draftLang = d.lang === 'en' || d.lang === 'zh' ? d.lang : null; // 升格草稿带来源工作台的会话语言，建会时优先于 UI 语言
     setStatebar(t('dyn.draftFilled'));

@@ -130,6 +130,71 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
     await rename(dir, path.join(trashDir, path.basename(dir) + '-' + Date.now().toString(36)));
   };
 
+  // 活动工作台查找 + 从磁盘装配（resume 路由 / 裁决投放 / 自动落卡共用）
+  const findActiveBenchId = dirname => {
+    for (const [bid, e] of benches.entries()) if (e.bench.dir && path.basename(e.bench.dir) === dirname) return bid;
+    return null;
+  };
+  const resumeBenchFromDisk = async dirname => {
+    let entries = [];
+    try { entries = (await readdir(sessionsDir, { withFileTypes: true })).filter(d => d.isDirectory()).map(d => d.name); } catch { /* 无目录 */ }
+    if (!entries.includes(dirname)) throw new Error('归档不存在'); // 白名单精确匹配，杜绝路径穿越
+    const dir = path.join(sessionsDir, dirname);
+    const { meta, messages, builds } = await loadWorkbenchFromDisk(dir);
+    const participants = (meta.participants ?? []).filter(x => agents[x]);
+    if (!participants.length) throw new Error('该工作台的参与模型已全部从配置中移除');
+    const wbWorkspace = String(meta.workspace ?? '');
+    const entry = newBenchEntry();
+    const bench = await Workbench.resume({
+      name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, wbWorkspace),
+      participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
+      workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants), builds,
+      buildSessions: meta.buildSessions ?? {}, lang: meta.lang === 'en' ? 'en' : 'zh', perms: meta.perms ?? {},
+    });
+    entry.bench = bench;
+    // 合成事件回放：重建聊天记录（含动手 diff 卡片——patch 从会话目录读回）
+    for (const msg of messages) {
+      let build;
+      if (msg.build) {
+        const rec = builds.find(x => x.buildId === msg.build);
+        if (rec) {
+          let patch = '';
+          try { patch = (await readFile(bench.patchPathOf(msg.build), 'utf8')).slice(0, 200000); } catch { /* patch 文件缺失则只展示统计 */ }
+          build = { buildId: rec.buildId, stat: rec.stat, status: rec.status, ...(rec.files ? { files: rec.files } : {}), patch };
+        }
+      }
+      entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}), ...(build ? { build } : {}) });
+    }
+    entry.events.push({ type: 'state', data: 'idle' });
+    const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+    benches.set(id, entry);
+    return id;
+  };
+
+  // 把裁决卡作为消息贴进目标工作台（活动的直接用，归档的从磁盘恢复）
+  const postVerdictToBench = async (c, targetDirname, card) => {
+    const benchId = findActiveBenchId(targetDirname) ?? await resumeBenchFromDisk(targetDirname);
+    const b = benches.get(benchId).bench;
+    await b.note(b.lang === 'en'
+      ? '[Verdict] From meeting "' + c.topic + '"\n\n' + card.trim()
+      : '【会议裁决】来自会议「' + c.topic + '」\n\n' + card.trim());
+    return benchId;
+  };
+
+  // 统一容器（方案 A 第一期）：会议是工作台时间线里的事件——裁决卡产出即自动落回来源工作台，
+  // 不再需要手动「回流」。重跑裁决会再次落卡（以最新为准）。恢复回放走 events.push 不经 emit，不会误触。
+  const attachAutoVerdictFlow = entry => {
+    const orig = entry.emit;
+    entry.emit = ev => {
+      orig(ev);
+      if (ev.type === 'judge-card' && entry.committee?.origin) {
+        postVerdictToBench(entry.committee, entry.committee.origin, ev.data)
+          .catch(e => orig({ type: 'sys', data: (entry.committee.lang === 'en' ? 'Auto-post of the verdict to the source workbench failed: ' : '裁决卡自动落回来源工作台失败：') + String(e.message ?? e) }));
+      }
+    };
+    return entry;
+  };
+
   const server = http.createServer(async (req, res) => {
     try {
       const LOOPBACK = /^(127\.0\.0\.1|localhost|\[::1\]|::1)(:\d+)?$/i;
@@ -176,7 +241,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         ].filter(Boolean));
         const active = [...sessions.entries()].map(([id, entry]) => ({
           id, topic: entry.committee.topic, state: entry.committee.state, round: entry.committee.round,
-          archived: false, updatedAt: entry.updatedAt,
+          archived: false, updatedAt: entry.updatedAt, origin: entry.committee.origin || '', // 母子分组：会议挂在来源工作台下
         }));
         const activeBenches = [...benches.entries()].map(([id, entry]) => ({
           id, topic: '[工作台] ' + (entry.bench.name || (entry.bench.lang === 'en' ? 'unnamed' : '未命名')), state: entry.bench.state,
@@ -192,7 +257,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             let meta;
             try { meta = JSON.parse(await readFile(path.join(sessionsDir, d.name, 'metadata.json'), 'utf8')); }
             catch { continue; } // 无 metadata.json（非会话目录）跳过
-            archived.push({ id: d.name, topic: meta.topic, state: meta.status, round: meta.rounds, archived: true, updatedAt: meta.updatedAt, ...(meta.type ? { type: meta.type } : {}) });
+            archived.push({ id: d.name, topic: meta.topic, state: meta.status, round: meta.rounds, archived: true, updatedAt: meta.updatedAt, origin: String(meta.origin ?? ''), ...(meta.type ? { type: meta.type } : {}) });
           }
         } catch { /* sessionsDir 尚不存在 */ }
         archived.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))); // 归档按最近更新在前
@@ -256,8 +321,15 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           emit: ev => entry.emit(ev),
         });
         entry.committee = committee;
+        attachAutoVerdictFlow(entry); // 裁决卡产出即自动落回来源工作台（统一容器第一期）
         await committee.init();
         sessions.set(id, entry);
+        // 时间线事件通知：来源工作台里留一条「会议已开始」记录（仅活动台，便宜路径）
+        const srcBenchId = committee.origin ? findActiveBenchId(committee.origin) : null;
+        if (srcBenchId) {
+          const b = benches.get(srcBenchId).bench;
+          b.note(b.lang === 'en' ? `[Meeting started] "${committee.topic}" — see the sidebar to watch or join` : `【会议已开始】「${committee.topic}」——侧栏可进入旁听或主持`).catch(() => {});
+        }
         return json(res, 200, { id });
       }
       if (url.pathname.startsWith('/api/archive/')) {
@@ -325,6 +397,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             emit: ev => entry.emit(ev),
           });
           entry.committee = committee;
+          attachAutoVerdictFlow(entry); // 恢复后再出的新裁决同样自动落回（回放走 events.push 不经 emit，不误触）
           await committee.saveMeta('paused');
           // 合成事件缓冲：供新连上的前端 SSE 回放重建界面（辩手栏、摘要、裁决卡）
           entry.events.push({ type: 'state', data: 'paused' });
@@ -401,46 +474,6 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         benches.set(id, entry);
         return json(res, 200, { id });
       }
-      // 活动工作台查找 + 从磁盘装配（resume 路由与裁决回流共用）
-      const findActiveBenchId = dirname => {
-        for (const [bid, e] of benches.entries()) if (e.bench.dir && path.basename(e.bench.dir) === dirname) return bid;
-        return null;
-      };
-      const resumeBenchFromDisk = async dirname => {
-        let entries = [];
-        try { entries = (await readdir(sessionsDir, { withFileTypes: true })).filter(d => d.isDirectory()).map(d => d.name); } catch { /* 无目录 */ }
-        if (!entries.includes(dirname)) throw new Error('归档不存在'); // 白名单精确匹配，杜绝路径穿越
-        const dir = path.join(sessionsDir, dirname);
-        const { meta, messages, builds } = await loadWorkbenchFromDisk(dir);
-        const participants = (meta.participants ?? []).filter(x => agents[x]);
-        if (!participants.length) throw new Error('该工作台的参与模型已全部从配置中移除');
-        const wbWorkspace = String(meta.workspace ?? '');
-        const entry = newBenchEntry();
-        const bench = await Workbench.resume({
-          name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, wbWorkspace),
-          participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
-          workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants), builds,
-          buildSessions: meta.buildSessions ?? {}, lang: meta.lang === 'en' ? 'en' : 'zh', perms: meta.perms ?? {},
-        });
-        entry.bench = bench;
-        // 合成事件回放：重建聊天记录（含动手 diff 卡片——patch 从会话目录读回）
-        for (const msg of messages) {
-          let build;
-          if (msg.build) {
-            const rec = builds.find(x => x.buildId === msg.build);
-            if (rec) {
-              let patch = '';
-              try { patch = (await readFile(bench.patchPathOf(msg.build), 'utf8')).slice(0, 200000); } catch { /* patch 文件缺失则只展示统计 */ }
-              build = { buildId: rec.buildId, stat: rec.stat, status: rec.status, ...(rec.files ? { files: rec.files } : {}), patch };
-            }
-          }
-          entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}), ...(build ? { build } : {}) });
-        }
-        entry.events.push({ type: 'state', data: 'idle' });
-        const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
-        benches.set(id, entry);
-        return id;
-      };
       if (url.pathname === '/api/workbenches/resume' && req.method === 'POST') {
         const body = await readBody(req);
         const dirname = String(body.dirname ?? '');
@@ -622,11 +655,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             try { card = await readFile(path.join(c.dir, 'judge-card.md'), 'utf8'); }
             catch { return json(res, 400, { error: '尚无裁决卡——先「进入裁决」' }); }
             try {
-              const benchId = findActiveBenchId(target) ?? await resumeBenchFromDisk(target);
-              await benches.get(benchId).bench.note(benches.get(benchId).bench.lang === 'en'
-                ? '[Verdict flowback] From meeting "' + c.topic + '"\n\n' + card.trim()
-                : '【会议裁决回流】来自会议「' + c.topic + '」\n\n' + card.trim());
-              return json(res, 200, { benchId });
+              return json(res, 200, { benchId: await postVerdictToBench(c, target, card) });
             } catch (e) { return json(res, 404, { error: '目标工作台不存在或无法恢复: ' + String(e.message ?? e) }); }
           }
           case 'rename': {

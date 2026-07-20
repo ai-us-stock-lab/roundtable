@@ -18,6 +18,7 @@ async function boot() {
   $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${localizeField(t.title)}</option>`).join('');
   $('#staleBanner').hidden = !cfg.stale; // 前端新后端旧 → 常驻横幅提醒重启
   renderAgentStatus();
+  renderWbParticipantPicker(); // 统一容器：落地默认视图是建台页，选人器开机即就绪
   await refreshSessionList();
   await applyDraftFromHash();
   // 页面已开着时又发起新会议（仅 hash 变化不重载）→ 同样要预填

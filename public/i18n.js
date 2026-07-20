@@ -4,8 +4,7 @@
 
 const I18N = {
   // ---- 侧边栏 / 通用 ----
-  'sidebar.newMeeting': { zh: '+ 会议', en: '+ Meeting' },
-  'sidebar.newWorkbench': { zh: '+ 工作台', en: '+ Workbench' },
+  'sidebar.start': { zh: '+ 开始', en: '+ Start' },
   'sidebar.empty': { zh: '还没有会话记录', en: 'No sessions yet' },
   'sidebar.summaryTip': { zh: '书记的滚动摘要与分歧分类表会出现在这里', en: "The scribe's rolling summary and disagreement table appear here" },
   'sidebar.stale': { zh: '⟳ 服务端代码已更新——重启服务后生效（start-server.cmd）', en: '⟳ Backend code has changed — restart the server (start-server.cmd) to pick it up' },
@@ -54,9 +53,9 @@ const I18N = {
   'dyn.flowbackPickFirst': { zh: '请先在下拉框选择目标工作台，再点「投放」', en: 'Pick a target workbench in the dropdown first, then hit Send' },
   'dyn.flowbackBusy': { zh: '投放中……（归档工作台需先恢复，稍等一两秒）', en: 'Sending… (an archived workbench is being restored first)' },
   'arena.flowbackPick': { zh: '投放裁决卡到工作台…', en: 'Send verdict to a workbench…' },
-  'arena.groupChat': { zh: '群聊', en: 'Group chat' },
-  'arena.groupChatToggle': { zh: '展开/收起群聊', en: 'Toggle group chat' },
-  'arena.groupChatHint': { zh: '基于本场会议上下文，与参会 AI 讨论', en: 'Discuss with participants, grounded in this meeting' },
+  'arena.groupChat': { zh: '场边追问', en: 'Sideline Q&A' },
+  'arena.groupChatToggle': { zh: '展开/收起场边追问', en: 'Toggle sideline Q&A' },
+  'arena.groupChatHint': { zh: '轮间/会后基于本场上下文向参会 AI 追问（不打断辩论）', en: 'Ask participants between rounds, grounded in this meeting (never interrupts the debate)' },
   'arena.chatInputPh': { zh: '和参会 AI 自由讨论……（Ctrl+Enter 发送）', en: 'Chat freely with participants… (Ctrl+Enter to send)' },
   'arena.send': { zh: '发送', en: 'Send' },
   'arena.notePh': { zh: '主持人插话（进入下一轮双方简报）', en: "Moderator note (folded into next round's briefs)" },
@@ -79,10 +78,12 @@ const I18N = {
   'wbSetup.namePh': { zh: '给这个工作台起个名（可选）', en: 'Name this workbench (optional)' },
   'wbSetup.workspacePh': { zh: '项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）', en: 'Project directory (optional, absolute path — models read it while chatting; if a git repo, they can "build" — edit files)' },
   'wbSetup.create': { zh: '开聊', en: 'Start chatting' },
+  'wbSetup.advancedMeeting': { zh: '直接开一场独立会议 →', en: 'Start a standalone meeting →' },
+  'wbSetup.advancedMeetingTitle': { zh: '不经工作台直接开正式会议（一般建议先聊，聊到分歧再「就此开会」）', en: 'Convene a formal meeting without a workbench (usually: chat first, convene when a real disagreement shows up)' },
 
   // ---- 工作台 ----
-  'wb.promote': { zh: '升格为会议', en: 'Promote to meeting' },
-  'wb.promoteTitle': { zh: '把这段讨论打包成会议草稿，开一场正式委员会', en: 'Package this chat into a meeting draft and open a formal committee' },
+  'wb.promote': { zh: '就此开会', en: 'Convene a meeting' },
+  'wb.promoteTitle': { zh: '把这段讨论打包成会议简报、就地开一场正式委员会；裁决卡会自动落回本时间线', en: 'Bundle this discussion into a meeting brief and convene a formal committee; the verdict card lands back in this timeline automatically' },
   'wb.inputPh': { zh: '发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）', en: 'Message… (no recipient = reply to whoever spoke last; Ctrl+Enter to send)' },
   'wb.addAgent': { zh: '＋ 添加参与者…', en: '+ Add participant…' },
   'wb.removeTitle': { zh: '移出该参与者（历史保留，可随时加回）', en: 'Remove this participant (history kept, re-add anytime)' },
