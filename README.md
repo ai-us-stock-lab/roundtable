@@ -2,9 +2,9 @@
 
 **Group-chat your AI CLIs day to day; escalate to a structured debate committee when the decision matters.**
 
-![Roundtable demo](docs/demo.gif)
+[![Roundtable demo](docs/demo-en.gif)](docs/demo-en.mp4)
 
-[▶ Watch the 64s walkthrough](docs/demo.mp4) *(Chinese narration for now — English recording pipeline is ready: `npm.cmd --prefix scripts/demo run demo -- --lang en`)*
+[▶ Watch the 67s English walkthrough](docs/demo-en.mp4) · [中文解说版](docs/demo.mp4)
 
 > Rides your own CLI subscriptions (Claude Code / Codex / …) — zero marginal API cost, zero dependencies, all local. The UI ships in **English and 中文** (toggle in the top-left).
 
