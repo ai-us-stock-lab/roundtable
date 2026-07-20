@@ -166,18 +166,29 @@ export class Workbench {
     });
   }
 
-  // 有效权限（含默认值与能力上限）：写能力是硬上限，无 writeArgs 的引擎两位恒为 false
-  permOf(id) {
+  // 角色模型（设计定稿 1.5）：讨论者 talk / 提案者 propose / 仲裁者 arbiter（decide=替用户决断档）。
+  // 写能力是硬上限：无 writeArgs 的引擎恒为讨论者。旧两位 {propose,apply} 元数据自动映射。
+  roleOf(id) {
     const capable = !!this.writeAgents[id];
+    if (!capable) return { role: 'talk', decide: false };
     const p = this.perms[id] ?? {};
-    return { propose: capable && (p.propose ?? true), apply: capable && (p.apply ?? false) };
+    if (p.role) return { role: p.role, decide: p.role === 'arbiter' && !!p.decide };
+    // 旧格式兼容：apply→仲裁者；propose 显式 false→讨论者；默认→提案者
+    if (p.apply) return { role: 'arbiter', decide: false };
+    return { role: p.propose === false ? 'talk' : 'propose', decide: false };
   }
 
-  async setPerm(agentId, perm, value) {
+  // 派生能力位（供动手拦截等使用）：propose=可产出 diff（提案者与仲裁者都可——多数用户只有两个 agent）
+  permOf(id) {
+    const { role, decide } = this.roleOf(id);
+    return { propose: role === 'propose' || role === 'arbiter', apply: role === 'arbiter', decide };
+  }
+
+  async setRole(agentId, role, decide = false) {
     if (!this.participants.includes(agentId)) throw new Error(this.tr('该模型不在参与者中', 'This model is not a participant'));
-    if (!['propose', 'apply'].includes(perm)) throw new Error('unknown perm: ' + perm);
-    if (!this.writeAgents[agentId] && value) throw new Error(this.tr('该模型无安全写模式，无法授予此权限', 'This model has no safe write mode — cannot grant this permission'));
-    this.perms[agentId] = { ...this.perms[agentId], [perm]: !!value };
+    if (!['talk', 'propose', 'arbiter'].includes(role)) throw new Error('unknown role: ' + role);
+    if (!this.writeAgents[agentId] && role !== 'talk') throw new Error(this.tr('该模型无安全写模式，只能作为讨论者', 'This model has no safe write mode — it can only be a discussant'));
+    this.perms[agentId] = { role, decide: role === 'arbiter' && !!decide };
     await this.saveMeta();
   }
 
@@ -323,7 +334,7 @@ export class Workbench {
     if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
     const wcfg = this.writeAgents[agentId];
     if (!wcfg) throw new Error(this.tr('该模型不支持动手（无安全写模式）', 'This model cannot build (no safe write mode)'));
-    if (!this.permOf(agentId).propose) throw new Error(this.tr('该模型的「提案/动手」权限已被关闭', 'This model\'s propose/build permission is switched off'));
+    if (!this.permOf(agentId).propose) throw new Error(this.tr('该模型是讨论者角色，不能产出变更——先在「变更」栏把它改为提案者/仲裁者', 'This model is a discussant — change its role to proposer/arbiter in the Changes pane first'));
     if (!this.workspace) throw new Error(this.tr('该工作台未挂载项目目录——动手需要在建台时填写项目目录', 'No project directory mounted — building requires one set at workbench creation'));
     if (!(await isGitRepo(this.workspace))) throw new Error(this.tr('项目目录不是 git 仓库——动手依赖 git worktree 隔离副本', 'The project directory is not a git repo — building relies on a git worktree isolated copy'));
     this.state = 'busy';

@@ -517,3 +517,6 @@ details.section[open] > summary { margin-bottom: 4px; }
   #wbBody { flex-direction: column; }
   #wbChanges { border-left: none; border-top: 1px solid var(--line); padding: 10px 0 0; max-width: none; max-height: 45%; }
 }
+.wb-pick { display: flex; align-items: center; gap: 8px; }
+.wb-role { font-size: 12px; }
+.wb-role-fixed { font-size: 11.5px; color: var(--muted, #888); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }

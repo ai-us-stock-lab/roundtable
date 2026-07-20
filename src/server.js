@@ -163,7 +163,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       }
       if (url.pathname === '/api/config') {
         // 只暴露 name/roles/unavailable，不泄漏 command/envWhitelist 等 adapter 细节
-        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
+        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, write: !!a.writeArgs, ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, { title: t.title }]));
         return json(res, 200, { agents: pub, templates: tpl, stale: await backendStale() });
       }
@@ -389,6 +389,11 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           lang: body.lang === 'en' ? 'en' : 'zh',
         });
         await bench.init();
+        // 建台时的角色分配（讨论者/提案者/仲裁者）：逐个校验，无效项按默认角色处理不阻塞建台
+        for (const [aid, r] of Object.entries(body.roles ?? {})) {
+          if (!participants.includes(aid) || typeof r !== 'object') continue;
+          try { await bench.setRole(aid, String(r.role ?? ''), !!r.decide); } catch { /* 能力不符→保持默认 */ }
+        }
         entry.bench = bench;
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         benches.set(id, entry);
@@ -470,7 +475,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             name: b.name, state: b.state, participants: b.participants,
             agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
             workspace: b.workspace, writeCapable: Object.keys(b.writeAgents),
-            perms: Object.fromEntries(b.participants.map(id => [id, b.permOf(id)])),
+            roles: Object.fromEntries(b.participants.map(id => [id, b.roleOf(id)])),
           });
         if (!action && req.method === 'DELETE') {
           for (const client of entry.clients) { try { client.end(); } catch { /* 已断开 */ } }
@@ -533,14 +538,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             participants: b.participants,
             agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
             writeCapable: Object.keys(b.writeAgents),
-            perms: Object.fromEntries(b.participants.map(id => [id, b.permOf(id)])),
+            roles: Object.fromEntries(b.participants.map(id => [id, b.roleOf(id)])),
           });
         }
-        if (action === 'perms') {
-          // 每参与者两级权限：propose 立即生效（动手执行者资格）；apply 存储待定稿功能读取
-          try { await b.setPerm(String(body.agentId ?? ''), String(body.perm ?? ''), !!body.value); }
+        if (action === 'role') {
+          // 角色设定：讨论者/提案者/仲裁者（decide=仲裁者「替我决断」档）
+          try { await b.setRole(String(body.agentId ?? ''), String(body.role ?? ''), !!body.decide); }
           catch (e) { return json(res, 400, { error: String(e.message ?? e) }); }
-          return json(res, 200, { perms: Object.fromEntries(b.participants.map(id => [id, b.permOf(id)])) });
+          return json(res, 200, { roles: Object.fromEntries(b.participants.map(id => [id, b.roleOf(id)])) });
         }
         if (action === 'rename') {
           const name = String(body.name ?? '').trim();

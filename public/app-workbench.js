@@ -8,11 +8,13 @@ let wbLastSpeaker = null; // 隐式路由目标（前端镜像：跟随 chat-mes
 
 function closeWbEvents() { if (wbEs) { wbEs.close(); wbEs = null; } wbId = null; }
 
+// 建台选人：勾选参与 + 入场即定角色（讨论者/提案者/仲裁者）。无安全写模式的引擎固定为讨论者
 function renderWbParticipantPicker() {
   const el = $('#wbParticipants');
   el.innerHTML = '';
   for (const [id, a] of Object.entries(cfg.agents)) {
     const label = document.createElement('label');
+    label.className = 'wb-pick';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = id;
@@ -20,6 +22,26 @@ function renderWbParticipantPicker() {
     cb.checked = !a.unavailable && ['claude', 'codex'].includes(id);
     label.appendChild(cb);
     label.appendChild(document.createTextNode(' ' + a.name + (a.unavailable ? t('dyn.unavailable') : '')));
+    if (a.write && !a.unavailable) {
+      const sel = document.createElement('select');
+      sel.className = 'wb-role';
+      sel.dataset.agent = id;
+      for (const role of ['talk', 'propose', 'arbiter']) {
+        const o = document.createElement('option');
+        o.value = role;
+        o.textContent = t('role.' + role);
+        sel.appendChild(o);
+      }
+      sel.value = 'propose'; // 有写能力默认提案者
+      sel.onclick = e => e.preventDefault(); // 防 label 点击串到 checkbox
+      label.appendChild(sel);
+    } else if (!a.unavailable) {
+      const tag = document.createElement('span');
+      tag.className = 'wb-role-fixed';
+      tag.textContent = t('role.talk');
+      tag.title = t('wb.roleNoWrite');
+      label.appendChild(tag);
+    }
     el.appendChild(label);
   }
 }
@@ -406,9 +428,7 @@ function renderWbRecipients() {
     cb.value = p;
     cb.onchange = updateWbRouteHint;
     label.appendChild(cb);
-    const canBuild = (info.writeCapable ?? []).includes(p) && info.workspace;
-    label.appendChild(document.createTextNode(' ' + (info.agentNames[p] ?? p) + (canBuild ? t('dyn.canBuild') : '')));
-    if (canBuild) label.title = t('dyn.canBuildTitle');
+    label.appendChild(document.createTextNode(' ' + (info.agentNames[p] ?? p))); // 名字保持干净；能力与角色在「变更」栏管理
     if (info.participants.length > 1) {
       const x = document.createElement('button');
       x.type = 'button';
@@ -466,12 +486,12 @@ function renderWbActionPanel() {
   panel.hidden = !wbInfo.workspace;
   $('#wbAssign').hidden = !capable.length;
   if (panel.hidden || !capable.length) return;
-  renderWbPermRows();
+  renderWbRoleRows();
   const sel = $('#wbActor');
   const prev = sel.value;
   sel.innerHTML = '';
-  // 执行者候选 = 有写能力 且 提案/动手权限开启
-  const eligible = capable.filter(id => wbInfo.perms?.[id]?.propose !== false);
+  // 执行者候选 = 有写能力 且 角色为提案者/仲裁者（讨论者只动嘴）
+  const eligible = capable.filter(id => (wbInfo.roles?.[id]?.role ?? 'propose') !== 'talk');
   for (const id of eligible) {
     const o = document.createElement('option');
     o.value = id;
@@ -489,40 +509,52 @@ function renderWbActionPanel() {
   syncWbBuildLabel();
 }
 
-// 权限行：每参与者两个独立权限位（设计定稿 1.5）。propose 立即生效；apply 存储、随定稿功能激活
-function renderWbPermRows() {
+// 角色行（设计定稿 1.5）：每参与者一个角色下拉；仲裁者额外露出「替我决断」档
+function renderWbRoleRows() {
   const box = $('#wbPermRows');
   box.innerHTML = '';
   for (const id of wbInfo.participants) {
     const capable = (wbInfo.writeCapable ?? []).includes(id);
-    const p = wbInfo.perms?.[id] ?? { propose: capable, apply: false };
+    const r = wbInfo.roles?.[id] ?? { role: capable ? 'propose' : 'talk', decide: false };
     const row = document.createElement('div');
     row.className = 'wb-perm-row';
     const name = document.createElement('span');
     name.className = 'wb-perm-name';
     name.textContent = wbInfo.agentNames[id] ?? id;
     row.appendChild(name);
-    for (const [perm, labelKey, titleKey] of [['propose', 'wb.permPropose', 'wb.permProposeTip'], ['apply', 'wb.permApply', 'wb.permApplyTip']]) {
+    const sel = document.createElement('select');
+    sel.className = 'wb-role';
+    for (const role of ['talk', 'propose', 'arbiter']) {
+      const o = document.createElement('option');
+      o.value = role;
+      o.textContent = t('role.' + role);
+      sel.appendChild(o);
+    }
+    sel.value = r.role;
+    sel.disabled = !capable;
+    sel.title = capable ? t('wb.roleTip') : t('wb.roleNoWrite');
+    sel.onchange = () => setWbRole(id, sel.value, false);
+    row.appendChild(sel);
+    if (r.role === 'arbiter' && capable) {
       const label = document.createElement('label');
       label.className = 'wb-perm';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.checked = !!p[perm];
-      cb.disabled = !capable;
-      cb.onchange = () => setWbPerm(id, perm, cb.checked);
-      label.append(cb, ' ' + t(labelKey));
-      label.title = capable ? t(titleKey) : t('wb.permNoCapability');
+      cb.checked = !!r.decide;
+      cb.onchange = () => setWbRole(id, 'arbiter', cb.checked);
+      label.append(cb, ' ' + t('wb.decide'));
+      label.title = t('wb.decideTip');
       row.appendChild(label);
     }
     box.appendChild(row);
   }
 }
 
-async function setWbPerm(agentId, perm, value) {
+async function setWbRole(agentId, role, decide) {
   let r;
-  try { r = await (await fetch(`/api/workbenches/${wbId}/perms`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId, perm, value }) })).json(); }
+  try { r = await (await fetch(`/api/workbenches/${wbId}/role`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId, role, decide }) })).json(); }
   catch (e) { r = { error: e.message }; }
-  if (r.error) { appendWbError(r.error); } else { wbInfo.perms = r.perms; }
+  if (r.error) { appendWbError(r.error); } else { wbInfo.roles = r.roles; }
   renderWbActionPanel();
 }
 
@@ -566,8 +598,13 @@ $('#wbCreate').onclick = async () => {
   const bar = $('#wbSetupBar');
   const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
   if (!participants.length) return err(t('dyn.pickParticipant'));
+  // 入场即定角色：读每行的角色下拉（无下拉=讨论者,由后端默认处理）
+  const roles = {};
+  for (const sel of $('#wbParticipants').querySelectorAll('select.wb-role')) {
+    if (participants.includes(sel.dataset.agent)) roles[sel.dataset.agent] = { role: sel.value };
+  }
   let r;
-  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants, lang: LANG }) })).json(); }
+  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants, roles, lang: LANG }) })).json(); }
   catch (e) { return err(t('dyn.createFail', { msg: e.message })); }
   if (r.error) return err(r.error);
   await attachWorkbench(r.id);
