@@ -157,7 +157,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const [file, type] = STATIC[url.pathname];
         try {
           const data = await readFile(file);
-          res.writeHead(200, { 'content-type': type + '; charset=utf-8' });
+          // no-cache：本地应用不需要浏览器缓存。否则 HTML/JS 可能一新一旧（浏览器启发式缓存），
+          // 曾致按钮文案空白等「幽灵 UI」——同一页面上跑着两个版本的前端
+          res.writeHead(200, { 'content-type': type + '; charset=utf-8', 'cache-control': 'no-cache' });
           return res.end(data);
         } catch { return json(res, 404, { error: 'not found' }); }
       }
