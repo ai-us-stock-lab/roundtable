@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
 import { redact } from '../src/redactor.js';
 
 test('擦除常见凭据形态', () => {
@@ -26,5 +27,27 @@ test('普通文本不受影响', () => {
 
 test('普通连字符词不被 sk- 模式误伤', () => {
   const s = 'our risk-management-framework and task-management-system stay intact';
+  assert.equal(redact(s), s);
+});
+
+test('主目录绝对路径脱敏为 ~：反斜杠 / 正斜杠 / JSON 双反斜杠三种形态', () => {
+  const home = homedir();
+  const tail = 'AppData\\Local\\Temp\\roundtable-wt-abc\\README.md';
+  const variants = [
+    `${home}\\${tail}`,
+    `${home.replaceAll('\\', '/')}/${tail.replaceAll('\\', '/')}`,
+    JSON.stringify({ text: `edited ${home}\\${tail}` }), // SSE 层对 JSON 串脱敏时的形态
+  ];
+  for (const input of variants) {
+    const out = redact(input);
+    assert.doesNotMatch(out, /Users[\\/]+[^\\/]+[\\/]+AppData/i, input); // 用户名段必须消失
+    assert.match(out, /~/, input);
+  }
+  // JSON 形态脱敏后必须仍可解析（emit 层依赖）
+  assert.doesNotThrow(() => JSON.parse(redact(JSON.stringify({ text: `${home}\\x.md`, n: 1 }))));
+});
+
+test('非本机的 Users 路径不误伤', () => {
+  const s = 'see C:\\Users\\someoneelse\\project\\a.md';
   assert.equal(redact(s), s);
 });

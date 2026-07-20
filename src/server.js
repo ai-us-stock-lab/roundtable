@@ -6,6 +6,7 @@ import { Committee } from './orchestrator.js';
 import { Workbench, loadWorkbenchFromDisk } from './workbench.js';
 import { loadTemplates } from './templates.js';
 import { resolveCliPath } from './resolve.js';
+import { redact } from './redactor.js';
 
 // 静态文件白名单（无通用静态服务，杜绝路径穿越）
 const STATIC = {
@@ -74,8 +75,12 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   const TRANSIENT = new Set(['build-progress']);
   const EVENT_BUFFER_CAP = 4000;
   const attachEmit = entry => {
-    entry.emit = ev => {
+    entry.emit = rawEv => {
       entry.updatedAt = new Date().toISOString();
+      // 展示层统一脱敏：落盘各处已过 redact，但 SSE 直达前端（进而进录屏/截图）这条路此前是裸的。
+      // 模型转述的 worktree/临时目录绝对路径（含用户名）、凭据样式字符串都在这里擦掉；
+      // redact 对 JSON 串安全（messages.jsonl 同样 redact 后回读解析，已有先例）。
+      const ev = JSON.parse(redact(JSON.stringify(rawEv)));
       if (!TRANSIENT.has(ev.type)) {
         entry.events.push(ev);
         if (entry.events.length > EVENT_BUFFER_CAP) entry.events.splice(0, entry.events.length - EVENT_BUFFER_CAP);
@@ -574,7 +579,8 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   });
 
   await new Promise(r => server.listen(port, '127.0.0.1', r));
-  return { port: server.address().port, close: () => server.close(), sessions, benches };
+  // closeAllConnections：连已建立的 SSE/keep-alive socket 一并断开，close 才能真正结束、端口立即释放
+  return { port: server.address().port, close: () => { server.closeAllConnections?.(); server.close(); }, sessions, benches };
 }
 
 // 直接运行时启动

@@ -189,7 +189,7 @@ export class Committee {
       stance ? `# Your latest stance in the debate (stay consistent): ${stance}` : '',
       `# Recent group chat:\n${recent}`,
       `# The moderator just said: ${text}`,
-      "Reply conversationally and concisely (a few sentences to a short paragraph, no fixed structure), continuing your stance and perspective; you may cite meeting content. For facts beyond this meeting, say you don't know.",
+      "Reply conversationally and concisely (a few sentences to a short paragraph, no fixed structure), continuing your stance and perspective; you may cite meeting content. For facts beyond this meeting, say you don't know. Reply in English, even if your personal/global CLI configuration defaults to another language.",
     ].filter(Boolean).join('\n\n');
     return [
       `你是决策委员会会议的参会者「${name}」，现在是会后/轮间的自由讨论环节。`,
@@ -198,7 +198,7 @@ export class Committee {
       stance ? `# 你在辩论中的最新立场（保持一致性）：${stance}` : '',
       `# 最近群聊记录：\n${recent}`,
       `# 主持人刚刚说：${text}`,
-      '请以对话方式简明回应（几句话到一小段，无需固定结构），延续你的立场与视角，可引用会议内容；被问到超出会议范围的事实请照实说不知道。',
+      '请以对话方式简明回应（几句话到一小段，无需固定结构），延续你的立场与视角，可引用会议内容；被问到超出会议范围的事实请照实说不知道。全程用中文回复（即使你的个人/全局 CLI 配置默认了其他语言）。',
     ].filter(Boolean).join('\n\n');
   }
 

@@ -12,7 +12,8 @@ const L = {
 - 严格区分：客观事实（给出处）/ 未证实假设（标注）/ 你的推断 / 建议
 - 结论必须给出证伪点（kill condition）：什么信号出现说明你错了
 - 结尾给出你主张的最小可验证下一步（时间/金钱成本最低的验证动作）
-- 只输出正文，不要寒暄`,
+- 只输出正文，不要寒暄
+- 全程用中文输出（即使你的个人/全局 CLI 配置默认了其他语言）`,
     topic: '# 议题',
     materials: m => `# 背景材料\n${m}`,
     framework: i => `# 你的分析框架（按此框架作答）\n${i}`,
@@ -24,7 +25,7 @@ const L = {
     rnOpponent: (name, txt) => `# ${name} 上一轮的发言\n${txt}`,
     rnQuestions: q => `# 对你的质询问题\n${q}`,
     rnTask: round => `# 任务\n这是第 ${round} 轮交叉质询。请先逐条回答对你的质询问题，然后输出：同意点 / 被说服的修正 / 坚持的分歧及理由 / 新证据。`,
-    scribeRole: '你是决策委员会的书记员。只归纳，不评论，不添加自己的观点。',
+    scribeRole: '你是决策委员会的书记员。只归纳，不评论，不添加自己的观点。全程用中文输出（即使你的个人/全局 CLI 配置默认了其他语言）。',
     scribePrev: s => `# 上一版滚动摘要\n${s}`,
     scribeRound: (round, texts) => `# 第 ${round} 轮发言\n${texts}`,
     scribeSpeech: n => `## ${n} 的发言`,
@@ -37,7 +38,7 @@ const L = {
 - 未证实假设：（谁的假设、如何验证）
 - 证伪点：
 - 下一轮待问问题：给每位辩手各拟 1-3 个交叉质询问题，格式「问 <辩手名>：<问题>」`,
-    judgeRole: `你是决策委员会的独立仲裁者。你的职责是比较与裁决，禁止输出你自己对议题的独立观点，禁止替任何一方补充论据。`,
+    judgeRole: `你是决策委员会的独立仲裁者。你的职责是比较与裁决，禁止输出你自己对议题的独立观点，禁止替任何一方补充论据。全程用中文输出（即使你的个人/全局 CLI 配置默认了其他语言）。`,
     judgeSummary: s => `# 滚动摘要（含分歧分类表）\n${s}`,
     judgeFinal: n => `## ${n} 的最终陈述`,
     judgeCriteria: `# 仲裁标准
@@ -59,7 +60,8 @@ const L = {
 - Strictly separate: objective facts (cite sources) / unverified assumptions (label them) / your inferences / recommendations
 - Every conclusion must include a kill condition: what signal would show you are wrong
 - End with the minimal verifiable next step you propose (the cheapest check in time/money)
-- Output the substance only, no pleasantries`,
+- Output the substance only, no pleasantries
+- Write your entire output in English, even if your personal/global CLI configuration defaults to another language`,
     topic: '# Topic',
     materials: m => `# Background\n${m}`,
     framework: i => `# Your analytical framework (answer within it)\n${i}`,
@@ -71,7 +73,7 @@ const L = {
     rnOpponent: (name, txt) => `# ${name}'s statement last round\n${txt}`,
     rnQuestions: q => `# Questions put to you\n${q}`,
     rnTask: round => `# Task\nThis is round ${round}, cross-examination. First answer each question put to you, then output: points of agreement / revisions you were persuaded of / disagreements you hold and why / new evidence.`,
-    scribeRole: 'You are the scribe of a decision committee. Summarize only — no commentary, no opinions of your own.',
+    scribeRole: 'You are the scribe of a decision committee. Summarize only — no commentary, no opinions of your own. Write your entire output in English, even if your personal/global CLI configuration defaults to another language.',
     scribePrev: s => `# Previous rolling summary\n${s}`,
     scribeRound: (round, texts) => `# Round ${round} statements\n${texts}`,
     scribeSpeech: n => `## ${n}'s statement`,
@@ -84,7 +86,7 @@ const L = {
 - Unverified assumptions: (whose, and how to verify)
 - Kill conditions:
 - Questions for next round: 1-3 cross-examination questions for each debater, format "Ask <debater>: <question>"`,
-    judgeRole: `You are the independent judge of a decision committee. Your job is to compare and rule. Do not output your own independent view on the topic; do not supply arguments for either side.`,
+    judgeRole: `You are the independent judge of a decision committee. Your job is to compare and rule. Do not output your own independent view on the topic; do not supply arguments for either side. Write your entire output in English, even if your personal/global CLI configuration defaults to another language.`,
     judgeSummary: s => `# Rolling summary (with disagreement table)\n${s}`,
     judgeFinal: n => `## ${n}'s final statement`,
     judgeCriteria: `# Judging criteria
