@@ -1,8 +1,11 @@
 {
   "name": "general",
-  "title": "通用辩论",
+  "title": { "zh": "通用辩论", "en": "General debate" },
   "injections": {},
-  "debaterFormat": "输出必须包含三节：## 证据（每条含出处）、## 假设（未证实前提逐条列出）、## 证伪点（什么信号出现说明你错了）。最后给出你的结论与最小可验证下一步。",
-  "judgeFormat": "",
+  "debaterFormat": {
+    "zh": "输出必须包含三节：## 证据（每条含出处）、## 假设（未证实前提逐条列出）、## 证伪点（什么信号出现说明你错了）。最后给出你的结论与最小可验证下一步。",
+    "en": "Your output must contain three sections: ## Evidence (each with a source), ## Assumptions (list every unverified premise), ## Kill conditions (what signal would show you are wrong). End with your conclusion and the minimal verifiable next step."
+  },
+  "judgeFormat": { "zh": "", "en": "" },
   "copyJudgeCardTo": null
 }

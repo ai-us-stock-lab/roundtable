@@ -22,6 +22,7 @@ async function applyDraftFromHash() {
     if (d.template && [...$('#tpl').options].some(o => o.value === d.template)) $('#tpl').value = d.template;
     if (d.workspace) $('#workspace').value = d.workspace;
     draftOrigin = d.originBench ?? null;
+    draftLang = d.lang === 'en' || d.lang === 'zh' ? d.lang : null; // 升格草稿带来源工作台的会话语言，建会时优先于 UI 语言
     setStatebar(t('dyn.draftFilled'));
   } catch { /* 服务波动时静默，用户可手动填 */ }
   history.replaceState(null, '', location.pathname); // 用后清掉 hash，防刷新重复提示
@@ -315,7 +316,7 @@ $('#start').onclick = async () => {
   try {
     r = await (await fetch('/api/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, workspace: $('#workspace').value.trim(), roles, mode: 'manual', origin: draftOrigin ?? '' }),
+      body: JSON.stringify({ topic: $('#topic').value, materials: $('#materials').value, template: $('#tpl').value, workspace: $('#workspace').value.trim(), roles, mode: 'manual', origin: draftOrigin ?? '', lang: draftLang ?? LANG }),
     })).json();
   } catch (e) {
     btn.disabled = false;
@@ -332,6 +333,7 @@ $('#start').onclick = async () => {
   resetSessionUI();
   sessionOrigin = draftOrigin ?? '';
   draftOrigin = null; // 已随建会提交，防止串到下一场手建会议
+  draftLang = null;
   setBrief($('#topic').value, $('#materials').value);
   $('#setup').hidden = true; // setupbar 已在 resetSessionUI 中清空隐藏
   sideOf = { [roles.debaters[0]]: 'A', [roles.debaters[1]]: 'B' };

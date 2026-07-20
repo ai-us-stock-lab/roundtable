@@ -42,7 +42,7 @@ async function refreshSessionList() {
     del.title = t('dyn.del');
     del.onclick = async e => {
       e.stopPropagation(); // 不触发条目本身的打开动作
-      if (!confirm(t('dyn.delConfirm', { topic: s.topic || t('dyn.noTopic') }))) return;
+      if (!confirm(t('dyn.delConfirm', { topic: (s.topic || t('dyn.noTopic')).replace(/^\[工作台\] /, '') }))) return;
       const url = s.archived ? '/api/archive/' + encodeURIComponent(s.id)
         : (isWb ? '/api/workbenches/' + s.id : '/api/sessions/' + s.id);
       let r;

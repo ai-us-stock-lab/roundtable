@@ -379,7 +379,7 @@ $('#wbCreate').onclick = async () => {
   const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
   if (!participants.length) return err(t('dyn.pickParticipant'));
   let r;
-  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants }) })).json(); }
+  try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants, lang: LANG }) })).json(); }
   catch (e) { return err(t('dyn.createFail', { msg: e.message })); }
   if (r.error) return err(r.error);
   await attachWorkbench(r.id);

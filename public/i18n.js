@@ -190,3 +190,9 @@ function setLang(lang) {
   localStorage.setItem('rt-lang', lang);
   location.reload(); // 最稳：新语言在 localStorage，刷新后全量按新语言渲染
 }
+
+// 本地化字段：{zh,en} 取当前 UI 语言；纯字符串（旧格式）原样返回
+function localizeField(v) {
+  if (v && typeof v === 'object') return v[LANG] ?? v.zh ?? v.en ?? '';
+  return v ?? '';
+}

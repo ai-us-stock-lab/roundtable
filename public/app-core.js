@@ -10,6 +10,7 @@ let sid = null;            // 当前活动会议 id
 let sideOf = {};          // agentId -> 'A' | 'B'
 let es = null;            // 当前会议 EventSource（新会话/重连前需先关闭）
 let draftOrigin = null;   // 升格草稿携带的来源工作台目录名（建会时随请求提交）
+let draftLang = null;     // 升格草稿携带的来源工作台会话语言（建会时优先于 UI 语言）
 let sessionOrigin = '';   // 当前会议的来源工作台（非空则裁决卡可回流）
 let archiveDirname = null; // 当前只读归档视图对应的磁盘目录名
 let wbId = null;          // 当前活动工作台 id

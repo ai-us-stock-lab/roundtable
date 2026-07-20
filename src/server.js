@@ -154,7 +154,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           archived: false, updatedAt: entry.updatedAt,
         }));
         const activeBenches = [...benches.entries()].map(([id, entry]) => ({
-          id, topic: '[工作台] ' + (entry.bench.name || '未命名'), state: entry.bench.state,
+          id, topic: '[工作台] ' + (entry.bench.name || (entry.bench.lang === 'en' ? 'unnamed' : '未命名')), state: entry.bench.state,
           round: entry.bench.messages.length, archived: false, updatedAt: entry.updatedAt, type: 'workbench',
           pending: entry.bench.builds.filter(b => b.status === 'pending').length, // 待批 diff 数
         }));
@@ -175,7 +175,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       if (url.pathname === '/api/draft' && req.method === 'POST') {
         const body = await readBody(req);
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
-        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? ''), template: String(body.template ?? ''), workspace: String(body.workspace ?? '') });
+        drafts.set(id, { topic: String(body.topic ?? ''), materials: String(body.materials ?? ''), template: String(body.template ?? ''), workspace: String(body.workspace ?? ''), lang: body.lang === 'en' ? 'en' : (body.lang === 'zh' ? 'zh' : '') });
         while (drafts.size > 20) drafts.delete(drafts.keys().next().value); // 只保留最近 20 份
         return json(res, 200, { id });
       }
@@ -192,8 +192,11 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         // 工作区挂载：参会 AI 以该目录为只读工作目录，可自行查阅项目文件
         const workspace = String(body.workspace ?? '').trim();
         if (workspace && !existsSync(workspace)) return json(res, 400, { error: '项目目录不存在: ' + workspace });
+        const lang = body.lang === 'en' ? 'en' : 'zh'; // 会话语言：建会时定死，存 metadata，提示词链路按此选中英文
         let materials = body.materials ?? '';
-        if (workspace) materials += '\n\n---\n参会说明：你的工作目录就是该项目的根目录（只读）。发言前请先自行查阅关键文件核实简报中的说法；引用事实时用「相对路径:行号」纯文本格式（如 src/server.js:123），不要写绝对路径，不要用 markdown 链接语法——你的发言按纯文本展示，链接语法只会变成刷屏的长串。';
+        if (workspace) materials += lang === 'en'
+          ? "\n\n---\nParticipant note: your working directory is the project root (read-only). Before speaking, check the key files yourself to verify the brief's claims; cite facts as plain-text \"relative/path:line\" (e.g. src/server.js:123) — no absolute paths, no markdown link syntax (your statements render as plain text, links just become screen-filling noise)."
+          : '\n\n---\n参会说明：你的工作目录就是该项目的根目录（只读）。发言前请先自行查阅关键文件核实简报中的说法；引用事实时用「相对路径:行号」纯文本格式（如 src/server.js:123），不要写绝对路径，不要用 markdown 链接语法——你的发言按纯文本展示，链接语法只会变成刷屏的长串。';
         const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
         const now = new Date().toISOString();
         const entry = attachEmit({ events: [], clients: new Set(), createdAt: now, updatedAt: now });
@@ -203,7 +206,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           agents: deriveSessionAgents(agents, roleIds, workspace),
           roles: body.roles, template, mode: body.mode ?? 'manual', workspace, origin: String(body.origin ?? ''),
           maxRounds: Math.min(Math.max(Number(body.maxRounds) || 4, 1), 10),
-          baseDir: sessionsDir,
+          baseDir: sessionsDir, lang,
           emit: ev => entry.emit(ev),
         });
         entry.committee = committee;
@@ -272,6 +275,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             topic: meta.topic, materials, agents: resumedAgents, roles: meta.roles, template,
             mode: meta.mode, maxRounds: meta.maxRounds, baseDir: sessionsDir,
             dir, round: rounds, history, origin: String(meta.origin ?? ''),
+            lang: meta.lang === 'en' ? 'en' : 'zh',
             emit: ev => entry.emit(ev),
           });
           entry.committee = committee;
@@ -338,6 +342,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           agents: deriveSessionAgents(agents, participants, wbWorkspace), // 挂了目录则聊天也可只读查阅
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev),
           workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants),
+          lang: body.lang === 'en' ? 'en' : 'zh',
         });
         await bench.init();
         entry.bench = bench;
@@ -364,7 +369,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, wbWorkspace),
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
           workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants), builds,
-          buildSessions: meta.buildSessions ?? {},
+          buildSessions: meta.buildSessions ?? {}, lang: meta.lang === 'en' ? 'en' : 'zh',
         });
         entry.bench = bench;
         // 合成事件回放：重建聊天记录（含动手 diff 卡片——patch 从会话目录读回）
@@ -475,7 +480,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         if (action === 'promote') {
           // 升格：对话史打包成会议草稿，走既有 #draft 预填链路；携带来源目录名供裁决卡回流
           const id = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
-          drafts.set(id, { topic: String(body.topic ?? '') || ('工作台议题：' + (b.name || '未命名')), materials: b.promoteMaterials(), template: 'general', workspace: '', originBench: path.basename(b.dir) });
+          drafts.set(id, { topic: String(body.topic ?? '') || (b.lang === 'en' ? 'Workbench topic: ' + (b.name || 'unnamed') : '工作台议题：' + (b.name || '未命名')), materials: b.promoteMaterials(), template: 'general', workspace: '', originBench: path.basename(b.dir), lang: b.lang });
           while (drafts.size > 20) drafts.delete(drafts.keys().next().value);
           return json(res, 200, { id });
         }
@@ -537,7 +542,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             catch { return json(res, 400, { error: '尚无裁决卡——先「进入裁决」' }); }
             try {
               const benchId = findActiveBenchId(c.origin) ?? await resumeBenchFromDisk(c.origin);
-              await benches.get(benchId).bench.note('【会议裁决回流】来自会议「' + c.topic + '」\n\n' + card.trim());
+              await benches.get(benchId).bench.note(benches.get(benchId).bench.lang === 'en'
+                ? '[Verdict flowback] From meeting "' + c.topic + '"\n\n' + card.trim()
+                : '【会议裁决回流】来自会议「' + c.topic + '」\n\n' + card.trim());
               return json(res, 200, { benchId });
             } catch (e) { return json(res, 404, { error: '来源工作台已不存在或无法恢复: ' + String(e.message ?? e) }); }
           }

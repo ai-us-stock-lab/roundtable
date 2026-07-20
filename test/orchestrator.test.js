@@ -174,6 +174,12 @@ test('extractDisagreementBlock 截取分歧段', () => {
   assert.doesNotMatch(extractDisagreementBlock(s), /已证实事实/);
 });
 
+test('extractDisagreementBlock 识别英文书记的 Disagreement table 标记', () => {
+  const s = '- Current consensus: x\n- Disagreement table:\n  factual | A | B | verify\n- Verified facts: y';
+  assert.match(extractDisagreementBlock(s), /factual \| A \| B/);
+  assert.doesNotMatch(extractDisagreementBlock(s), /Verified facts/);
+});
+
 test('stopRound 后 skipSide 的摘要调用仍可被再次 stopRound 中止', async () => {
   const { c } = makeCommittee();
   await c.init();

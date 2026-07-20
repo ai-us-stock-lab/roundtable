@@ -1,8 +1,14 @@
 {
   "name": "consult",
-  "title": "项目会诊（多方视角看进行中的项目）",
+  "title": { "zh": "项目会诊（多方视角看进行中的项目）", "en": "Project consult (many-angled look at a project in flight)" },
   "injections": {},
-  "debaterFormat": "背景材料是一份进行中项目的会诊简报（含项目目标、现状、卡点与项目主人的疑惑）。你是受邀会诊的独立顾问，请严格按以下结构输出：\n## 1. 我对现状的诊断（哪里健康、哪里有病灶，逐条给依据——依据必须来自简报中的事实，不臆造）\n## 2. 对项目主人疑惑的直接回答（不绕弯，先给结论再给理由）\n## 3. 下一步建议（按优先级排序，每条注明预期收益与成本/风险）\n## 4. 我认为项目主人没问但更该担心的事\n## 5. 证伪点（什么信号出现说明我的判断错了）\n第 2 轮起先逐条回答对你的质询，再输出：同意点 / 被说服的修正 / 坚持的分歧及理由。",
-  "judgeFormat": "## 会诊结论卡\n- 各方一致的判断（可直接执行）：\n- 被交锋修正过的建议：\n- 遗留分歧（各自理由，由项目主人拍板）：\n- 下一步行动清单（按优先级，标注来自哪位顾问）：\n- 综合证伪条件（出现什么信号说明这次会诊的方向错了）：\n- 最小可验证下一步：",
+  "debaterFormat": {
+    "zh": "背景材料是一份进行中项目的会诊简报（含项目目标、现状、卡点与项目主人的疑惑）。你是受邀会诊的独立顾问，请严格按以下结构输出：\n## 1. 我对现状的诊断（哪里健康、哪里有病灶，逐条给依据——依据必须来自简报中的事实，不臆造）\n## 2. 对项目主人疑惑的直接回答（不绕弯，先给结论再给理由）\n## 3. 下一步建议（按优先级排序，每条注明预期收益与成本/风险）\n## 4. 我认为项目主人没问但更该担心的事\n## 5. 证伪点（什么信号出现说明我的判断错了）\n第 2 轮起先逐条回答对你的质询，再输出：同意点 / 被说服的修正 / 坚持的分歧及理由。",
+    "en": "The background material is a consult brief for a project in flight (its goals, current state, blockers, and the owner's open questions). You are an independent consultant invited in. Output strictly in this structure:\n## 1. My diagnosis of the current state (what's healthy, what's diseased — evidence for each item, drawn only from facts in the brief, no invention)\n## 2. Direct answers to the owner's questions (no hedging — conclusion first, then reasons)\n## 3. Next-step recommendations (priority-ordered; each with expected payoff and cost/risk)\n## 4. What the owner didn't ask but should worry about more\n## 5. Kill conditions (what signal would show my judgment is wrong)\nFrom round 2 on, first answer each question put to you, then output: points of agreement / revisions you were persuaded of / disagreements you hold and why."
+  },
+  "judgeFormat": {
+    "zh": "## 会诊结论卡\n- 各方一致的判断（可直接执行）：\n- 被交锋修正过的建议：\n- 遗留分歧（各自理由，由项目主人拍板）：\n- 下一步行动清单（按优先级，标注来自哪位顾问）：\n- 综合证伪条件（出现什么信号说明这次会诊的方向错了）：\n- 最小可验证下一步：",
+    "en": "## Consult conclusion card\n- Judgments all sides agree on (directly actionable):\n- Recommendations revised through the exchange:\n- Remaining disagreements (each side's reasons — the owner decides):\n- Next-step action list (priority-ordered, credited to the advising consultant):\n- Combined kill conditions (what signal would show this consult pointed the wrong way):\n- Minimal verifiable next step:"
+  },
   "copyJudgeCardTo": null
 }

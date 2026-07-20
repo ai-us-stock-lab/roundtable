@@ -15,7 +15,7 @@ async function boot() {
   if ($('#debB').options.length > 1) $('#debB').selectedIndex = 1;
   $('#judge').innerHTML = opts('judge');
   $('#summ').innerHTML = opts('summarizer');
-  $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${t.title}</option>`).join('');
+  $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${localizeField(t.title)}</option>`).join('');
   await refreshSessionList();
   await applyDraftFromHash();
   // 页面已开着时又发起新会议（仅 hash 变化不重载）→ 同样要预填

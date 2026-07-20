@@ -197,6 +197,22 @@ test('relay: 模型回复【无新增】时提前收敛终止', async () => {
   } finally { delete process.env.MOCK_FIXED_OUTPUT; }
 });
 
+test('relay: en 会话用英文收敛标记，同样提前终止', async () => {
+  process.env.MOCK_FIXED_OUTPUT = '[NOTHING NEW]';
+  try {
+    const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-conv-en-'));
+    const events = [];
+    const w = new Workbench({ name: 'ce', agents: MOCK_AGENTS(), participants: ['m1', 'm2'], baseDir, emit: e => events.push(e), lang: 'en' });
+    await w.init();
+    await w.relay(5);
+    assert.equal(w.messages.length, 1);
+    assert.ok(events.some(e => e.type === 'sys' && /converged/.test(e.data)));
+    // en 会话的互聊指令与收敛标记都是英文
+    assert.match(w.messages[0].text, /\[NOTHING NEW\]/);
+    assert.doesNotMatch(w.messages[0].text, /【无新增】/);
+  } finally { delete process.env.MOCK_FIXED_OUTPUT; }
+});
+
 test('relay: 少于两个模型拒绝；busy 时拒绝', async () => {
   const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-guard-'));
   const w = new Workbench({ name: 'g', agents: MOCK_AGENTS(), participants: ['m1'], baseDir, emit: () => {} });

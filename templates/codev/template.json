@@ -1,8 +1,14 @@
 {
   "name": "codev",
-  "title": "协作开发（独立设计-交叉评审-融合）",
+  "title": { "zh": "协作开发（独立设计-交叉评审-融合）", "en": "Collaborative dev (independent design → cross-review → merge)" },
   "injections": {},
-  "debaterFormat": "你在参与一次协作开发，议题是一个待实现的软件需求。\n\n【第 1 轮（独立设计）】给出你的完整技术方案，严格按以下结构：\n## 1. 需求理解与边界（做什么、不做什么、隐含假设逐条标注）\n## 2. 技术选型及理由（每个选型给出替代方案与放弃理由）\n## 3. 架构与文件结构（具体到文件名与各文件职责）\n## 4. 关键代码（核心逻辑用真实可运行代码写出，禁止伪代码，代码块标注语言与目标文件路径）\n## 5. 风险与测试要点（最可能出 bug 的地方、必须写的测试）\n\n【第 2 轮起（交叉评审）】先逐条回答对你的质询，然后：\n## 对方方案的具体缺陷（性能/边界条件/可维护性/安全，必须给代码级或场景级证据，不接受泛泛而谈）\n## 我承认对方更优的部分（明确说哪里比我的好、我如何吸收）\n## 我的修订方案（只写与上一版的差异点，含更新后的关键代码）\n\n通用纪律：代码必须可直接复制使用；不确定的行为标注「未验证」；不要为了反驳而反驳——发现对方方案整体更优时明确说出来。",
-  "judgeFormat": "## 融合实施方案\n- 推荐架构（说明采纳了谁的哪部分、为什么）：\n- 最终文件结构：\n- 关键实现（从双方代码中选取更优片段，标注来源方，给出完整可用代码）：\n- 双方都没覆盖的风险：\n- 分歧未决点（需要用户拍板的技术选择，各自的取舍代价）：\n- 最小可运行的第一步（先建哪个文件、先写哪个测试、如何验证）：",
+  "debaterFormat": {
+    "zh": "你在参与一次协作开发，议题是一个待实现的软件需求。\n\n【第 1 轮（独立设计）】给出你的完整技术方案，严格按以下结构：\n## 1. 需求理解与边界（做什么、不做什么、隐含假设逐条标注）\n## 2. 技术选型及理由（每个选型给出替代方案与放弃理由）\n## 3. 架构与文件结构（具体到文件名与各文件职责）\n## 4. 关键代码（核心逻辑用真实可运行代码写出，禁止伪代码，代码块标注语言与目标文件路径）\n## 5. 风险与测试要点（最可能出 bug 的地方、必须写的测试）\n\n【第 2 轮起（交叉评审）】先逐条回答对你的质询，然后：\n## 对方方案的具体缺陷（性能/边界条件/可维护性/安全，必须给代码级或场景级证据，不接受泛泛而谈）\n## 我承认对方更优的部分（明确说哪里比我的好、我如何吸收）\n## 我的修订方案（只写与上一版的差异点，含更新后的关键代码）\n\n通用纪律：代码必须可直接复制使用；不确定的行为标注「未验证」；不要为了反驳而反驳——发现对方方案整体更优时明确说出来。",
+    "en": "You are in a collaborative development session; the topic is a software requirement to implement.\n\n[Round 1 (independent design)] Give your full technical plan, strictly in this structure:\n## 1. Requirements & boundaries (what it does, what it doesn't, every implicit assumption labeled)\n## 2. Tech choices & rationale (for each, give the alternative and why you rejected it)\n## 3. Architecture & file layout (down to filenames and each file's responsibility)\n## 4. Key code (write core logic as real runnable code, no pseudocode; label each block's language and target file path)\n## 5. Risks & test points (where bugs are most likely, the tests you must write)\n\n[Round 2 onward (cross-review)] First answer each question put to you, then:\n## Concrete flaws in the other plan (performance / edge cases / maintainability / security — give code-level or scenario-level evidence, no hand-waving)\n## Parts where I concede the other is better (say exactly what beats mine and how I'll absorb it)\n## My revised plan (only the diffs from the previous version, with updated key code)\n\nGeneral discipline: code must be directly usable; label uncertain behavior \"unverified\"; don't rebut for the sake of rebutting — when the other plan is better overall, say so."
+  },
+  "judgeFormat": {
+    "zh": "## 融合实施方案\n- 推荐架构（说明采纳了谁的哪部分、为什么）：\n- 最终文件结构：\n- 关键实现（从双方代码中选取更优片段，标注来源方，给出完整可用代码）：\n- 双方都没覆盖的风险：\n- 分歧未决点（需要用户拍板的技术选择，各自的取舍代价）：\n- 最小可运行的第一步（先建哪个文件、先写哪个测试、如何验证）：",
+    "en": "## Merged implementation plan\n- Recommended architecture (whose part you adopted and why):\n- Final file layout:\n- Key implementation (pick the stronger snippets from both sides, label the source, give complete usable code):\n- Risks neither side covered:\n- Open disagreements (tech choices needing the user's call, with each trade-off's cost):\n- Minimal runnable first step (which file to create first, which test to write first, how to verify):"
+  },
   "copyJudgeCardTo": null
 }
