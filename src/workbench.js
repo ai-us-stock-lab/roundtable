@@ -800,12 +800,12 @@ export class Workbench {
   }
 
   // 静默注入一条用户侧消息（落盘+广播，不触发任何模型调用）——裁决卡回流等场景用
-  async note(text) {
+  async note(text, extra = null) {
     const uname = userLabel(this.lang);
-    const m = { seq: this.messages.length, from: 'user', name: uname, text, ts: new Date().toISOString() };
+    const m = { seq: this.messages.length, from: 'user', name: uname, text, ts: new Date().toISOString(), ...(extra?.meeting ? { meeting: extra.meeting } : {}) };
     this.messages.push(m);
     await this.#persist(m);
-    this.emit({ type: 'chat-message', from: 'user', name: uname, data: text });
+    this.emit({ type: 'chat-message', from: 'user', name: uname, data: text, ...(extra?.meeting ? { meeting: extra.meeting } : {}) });
     await this.saveMeta();
   }
 

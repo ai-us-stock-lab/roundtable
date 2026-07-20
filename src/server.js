@@ -163,7 +163,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           build = { buildId: rec.buildId, stat: rec.stat, status: rec.status, ...(rec.files ? { files: rec.files } : {}), patch };
         }
       }
-      entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}), ...(build ? { build } : {}) });
+      entry.events.push({ type: 'chat-message', from: msg.from, name: msg.name, ...(msg.from === 'user' && msg.toNames ? { to: msg.toNames } : {}), data: msg.text, ...(msg.ctx ? { ctx: msg.ctx } : {}), ...(msg.meeting ? { meeting: msg.meeting } : {}), ...(build ? { build } : {}) });
     }
     entry.events.push({ type: 'state', data: 'idle' });
     const id = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
@@ -175,9 +175,12 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
   const postVerdictToBench = async (c, targetDirname, card) => {
     const benchId = findActiveBenchId(targetDirname) ?? await resumeBenchFromDisk(targetDirname);
     const b = benches.get(benchId).bench;
-    await b.note(b.lang === 'en'
-      ? '[Verdict] From meeting "' + c.topic + '"\n\n' + card.trim()
-      : '【会议裁决】来自会议「' + c.topic + '」\n\n' + card.trim());
+    await b.note(
+      b.lang === 'en'
+        ? '[Verdict] From meeting "' + c.topic + '"\n\n' + card.trim()
+        : '【会议裁决】来自会议「' + c.topic + '」\n\n' + card.trim(),
+      { meeting: { dir: path.basename(c.dir), topic: c.topic, kind: 'verdict' } },
+    );
     return benchId;
   };
 
@@ -246,6 +249,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const active = [...sessions.entries()].map(([id, entry]) => ({
           id, topic: entry.committee.topic, state: entry.committee.state, round: entry.committee.round,
           archived: false, updatedAt: entry.updatedAt, origin: entry.committee.origin || '', // 母子分组：会议挂在来源工作台下
+          dirname: entry.committee.dir ? path.basename(entry.committee.dir) : '',
         }));
         const activeBenches = [...benches.entries()].map(([id, entry]) => ({
           id, topic: '[工作台] ' + (entry.bench.name || (entry.bench.lang === 'en' ? 'unnamed' : '未命名')), state: entry.bench.state,
@@ -316,10 +320,35 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const now = new Date().toISOString();
         const entry = attachEmit({ events: [], clients: new Set(), createdAt: now, updatedAt: now });
         const roleIds = [...body.roles.debaters, body.roles.judge, body.roles.summarizer];
+        let sessionOrigin = String(body.origin ?? '');
+        if (!body.origin) {
+          sessionOrigin = ''; // 包台被跳过或失败时，保持无 origin 的旧行为
+          const participantsIds = [...new Set(roleIds)].filter(agentId => agents[agentId] && !agents[agentId].unavailable);
+          if (participantsIds.length) {
+            try {
+              const wrapEntry = newBenchEntry();
+              const wrapBench = new Workbench({
+                name: String(body.topic ?? '').slice(0, 40),
+                agents: deriveSessionAgents(agents, participantsIds, workspace),
+                participants: participantsIds,
+                baseDir: sessionsDir,
+                emit: ev => wrapEntry.emit(ev),
+                workspace,
+                writeAgents: deriveWriteAgents(agents, participantsIds),
+                lang,
+              });
+              await wrapBench.init();
+              wrapEntry.bench = wrapBench;
+              const wrapId = Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+              benches.set(wrapId, wrapEntry);
+              sessionOrigin = path.basename(wrapBench.dir);
+            } catch { /* 包台失败不阻塞建会，回退为无 origin 的旧行为 */ }
+          }
+        }
         const committee = new Committee({
           topic: body.topic, materials,
           agents: deriveSessionAgents(agents, roleIds, workspace),
-          roles: body.roles, template, mode: body.mode ?? 'manual', workspace, origin: String(body.origin ?? ''),
+          roles: body.roles, template, mode: body.mode ?? 'manual', workspace, origin: sessionOrigin,
           maxRounds: Math.min(Math.max(Number(body.maxRounds) || 4, 1), 10),
           baseDir: sessionsDir, lang,
           emit: ev => entry.emit(ev),
@@ -332,7 +361,10 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         const srcBenchId = committee.origin ? findActiveBenchId(committee.origin) : null;
         if (srcBenchId) {
           const b = benches.get(srcBenchId).bench;
-          b.note(b.lang === 'en' ? `[Meeting started] "${committee.topic}" — see the sidebar to watch or join` : `【会议已开始】「${committee.topic}」——侧栏可进入旁听或主持`).catch(() => {});
+          b.note(
+            b.lang === 'en' ? `[Meeting started] "${committee.topic}" — see the sidebar to watch or join` : `【会议已开始】「${committee.topic}」——侧栏可进入旁听或主持`,
+            { meeting: { dir: path.basename(committee.dir), topic: committee.topic, kind: 'started' } },
+          ).catch(() => {});
         }
         return json(res, 200, { id });
       }
