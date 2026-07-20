@@ -2,6 +2,7 @@ import path from 'node:path';
 import { appendFile, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { runAgent } from './runner.js';
 import { redact } from './redactor.js';
+import { sha256, saveBlob, saveRevision, loadRevisions, deterministicGate, logApplication } from './changes.js';
 import { createSessionDir, saveMetadata, savePrompt, saveRaw } from './store.js';
 import { isGitRepo, createWorktree, captureDiff, removeWorktree, applyPatch, syncWorktreeWithMain, runCommand } from './worktree.js';
 
@@ -444,6 +445,24 @@ export class Workbench {
       const record = { buildId, agentId, instruction: instruction.slice(0, 200), stat, status: 'pending', files, ts: new Date().toISOString() };
       this.builds.push(record);
       await this.#saveBuilds();
+      // diff 一等公民底层（设计定稿实施第 4 步，现有动手流的超集）：每次动手同步登记 Revision——
+      // 改前(主工作区)/改后(副本)内容入 CAS 快照，供 applyBuild 的确定性硬门与审计重建使用。
+      // 登记失败不阻塞本次 diff（硬门遇缺 Revision 走旧行为），但要出声。
+      try {
+        const revFiles = [];
+        for (const f of files) {
+          const baseBuf = await readFile(path.join(this.workspace, f.path)).catch(() => null);  // null=新文件
+          const resultBuf = await readFile(path.join(wt, f.path)).catch(() => null);            // null=删除
+          revFiles.push({
+            path: f.path,
+            baseSha: baseBuf ? await saveBlob(this.dir, baseBuf) : null,
+            resultSha: resultBuf ? await saveBlob(this.dir, resultBuf) : null,
+          });
+        }
+        await saveRevision(this.dir, { revisionId: buildId, actorId: agentId, note: instruction.slice(0, 200), ts: new Date().toISOString(), files: revFiles });
+      } catch (e) {
+        this.emit({ type: 'sys', data: this.tr('变更快照登记失败（不影响本张 diff）：', 'Revision snapshot registration failed (this diff is unaffected): ') + String(e.message ?? e) });
+      }
       const reply = { seq, from: agentId, name, text: summary, ts: new Date().toISOString(), build: buildId };
       this.messages.push(reply);
       this.lastSpeaker = agentId;
@@ -480,6 +499,27 @@ export class Workbench {
     const b = this.#buildRecordOf(buildId);
     const targets = b.files.filter(f => f.status === 'pending' && (!filePaths || filePaths.includes(f.path)));
     if (!targets.length) throw new Error(this.tr('没有可应用的文件（已应用或已丢弃）', 'No files left to apply (already applied or discarded)'));
+    // 确定性硬门（设计定稿：零误报判定才有资格拦人）：基线漂移 / 快照缺失或篡改。
+    // 语义类判断不在此拦——用户的显式审批本身就是 informed 决策。旧记录无 Revision → 维持历史行为。
+    const rev = (await loadRevisions(this.dir)).find(r => r.revisionId === buildId);
+    if (rev) {
+      const targetPaths = new Set(targets.map(t => t.path));
+      const subFiles = rev.files.filter(f => targetPaths.has(f.path));
+      const currentFileHashes = {};
+      for (const f of subFiles) {
+        if (f.baseSha == null) continue; // 新文件无基线
+        const buf = await readFile(path.join(this.workspace, f.path)).catch(() => null);
+        if (buf) currentFileHashes[f.path] = sha256(buf);
+      }
+      const gate = await deterministicGate({ sessionDir: this.dir, revision: { ...rev, files: subFiles }, currentFileHashes });
+      if (!gate.pass) {
+        const drift = [...new Set(gate.blocks.filter(x => x.code === 'base_drift').map(x => x.file))];
+        const missing = [...new Set(gate.blocks.filter(x => x.code === 'blob_missing').map(x => x.file))];
+        const zh = [drift.length ? `基线漂移：${drift.join('、')}（文件在该提案产出后被改过——请重新指派基于最新状态修改）` : '', missing.length ? `快照缺失或被篡改：${missing.join('、')}` : ''].filter(Boolean).join('；');
+        const en = [drift.length ? `base drift: ${drift.join(', ')} (changed since this proposal — re-assign against the latest state)` : '', missing.length ? `snapshot missing/tampered: ${missing.join(', ')}` : ''].filter(Boolean).join('; ');
+        throw new Error(this.tr('确定性硬门拦截——' + zh, 'Deterministic gate blocked — ' + en));
+      }
+    }
     const patch = await this.#patchForApply(buildId); // 应用必须用原始 patch，脱敏版会把占位符写进文件
     const segs = splitPatchByFile(patch);
     const sub = b.files.length === 1 && b.files[0].path === '(全部)'
@@ -490,6 +530,8 @@ export class Workbench {
     for (const f of targets) f.status = 'applied';
     this.#recalcBuildStatus(b);
     await this.#saveBuilds();
+    // 应用审计（仲裁补充的双方均漏风险）：每次定稿落地留痕，谁的哪些文件在何时进了主工作区
+    try { await logApplication(this.dir, { buildId, actorId: b.agentId, appliedRevisionIds: rev ? [buildId] : [], files: targets.map(t => t.path) }); } catch { /* 审计失败不阻塞应用 */ }
     this.emit({ type: 'build-status', buildId, status: b.status, files: b.files });
     this.emit({ type: 'sys', data: this.tr(`已应用 ${targets.length} 个文件到主工作区（未提交——commit 权在你自己的 git 流程里）`, `Applied ${targets.length} file(s) to the main workspace (uncommitted — committing stays in your own git flow)`) });
   }
