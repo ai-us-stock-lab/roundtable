@@ -42,7 +42,8 @@ export class Committee {
     return v ?? '';
   }
   latestSummary() { return this.history.at(-1)?.summary ?? ''; }
-  interject(text) { this.userNote = text; }
+  // 追加而非覆盖：下一轮开跑前的多次插话都要保留（自动跑轮间插话是常规操作）
+  interject(text) { this.userNote = this.userNote ? this.userNote + '\n' + text : text; }
 
   async init() {
     this.dir = await store.createSessionDir(this.baseDir, this.topic.slice(0, 30));

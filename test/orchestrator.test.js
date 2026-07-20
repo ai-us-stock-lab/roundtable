@@ -168,6 +168,13 @@ test('runAuto 假收敛守卫：分歧块恒为空时不误判收敛，跑满 ma
   assert.equal(c.state, 'done');
 });
 
+test('interject 追加而非覆盖：轮间多次插话都进下一轮简报', () => {
+  const { c } = makeCommittee();
+  c.interject('先聚焦成本');
+  c.interject('再比较风险');
+  assert.equal(c.userNote, '先聚焦成本\n再比较风险');
+});
+
 test('extractDisagreementBlock 截取分歧段', () => {
   const s = '- 当前共识：x\n- 分歧分类表：\n  事实分歧 | A | B | 查证\n- 已证实事实：y';
   assert.match(extractDisagreementBlock(s), /事实分歧 \| A \| B/);

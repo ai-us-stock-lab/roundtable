@@ -267,9 +267,13 @@ function onEvent(ev) {
   }
 }
 
-async function sendNote() {
-  const t = $('#note').value.trim();
-  if (t) { await api('interject', { text: t }); $('#note').value = ''; }
+async function sendNote({ announce = false } = {}) {
+  const text = $('#note').value.trim();
+  if (!text) return;
+  await api('interject', { text });
+  $('#note').value = '';
+  // 单独点「插话」时给确认反馈；随「下一轮/自动跑完」一起发时按钮本身就是反馈，不重复报
+  if (announce) setStatebar(t('dyn.noteQueued'));
 }
 
 // 会场常驻显示"在讨论什么、前提是什么"——会一开跑建会表单就没了，这里是唯一入口
@@ -401,6 +405,9 @@ $('#start').onclick = async () => {
 };
 $('#next').onclick = async () => { await sendNote(); await api('round'); };
 $('#auto').onclick = async () => { await sendNote(); await api('auto', { maxRounds: Number($('#maxR').value) }); };
+// 独立插话入口：自动跑期间「下一轮/自动跑完」不可用，这是轮间投放插话的唯一通道
+$('#sendNoteBtn').onclick = () => sendNote({ announce: true });
+$('#note').addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'Enter') sendNote({ announce: true }); });
 $('#stop').onclick = () => api('stop');
 $('#dojudge').onclick = () => api('judge');
 $('#partial').onclick = () => api('save-partial');

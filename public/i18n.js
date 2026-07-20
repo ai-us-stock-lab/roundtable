@@ -55,6 +55,8 @@ const I18N = {
   'arena.chatInputPh': { zh: '和参会 AI 自由讨论……（Ctrl+Enter 发送）', en: 'Chat freely with participants… (Ctrl+Enter to send)' },
   'arena.send': { zh: '发送', en: 'Send' },
   'arena.notePh': { zh: '主持人插话（进入下一轮双方简报）', en: "Moderator note (folded into next round's briefs)" },
+  'arena.sendNote': { zh: '插话', en: 'Interject' },
+  'arena.sendNoteTitle': { zh: '随时可发（自动跑轮间也行）——排队进入下一轮双方简报；Ctrl+Enter 同效', en: "Send anytime (even mid auto-run) — queued into the next round's briefs; Ctrl+Enter works too" },
   'arena.nextRound': { zh: '下一轮', en: 'Next round' },
   'arena.auto': { zh: '自动跑完', en: 'Auto-run' },
   'arena.upTo': { zh: '至多', en: 'up to' },
@@ -86,6 +88,8 @@ const I18N = {
   // ---- 归档 ----
   'archive.back': { zh: '← 返回', en: '← Back' },
   'archive.resume': { zh: '恢复此会话', en: 'Resume this session' },
+
+  'dyn.noteQueued': { zh: '插话已排队——将进入下一轮双方简报', en: "Note queued — it will be folded into the next round's briefs" },
 
   // ---- JS 动态：状态 / 错误 / 确认 ----
   'dyn.noTopic': { zh: '（无议题）', en: '(no topic)' },
