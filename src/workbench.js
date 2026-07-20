@@ -191,6 +191,12 @@ export class Workbench {
     if (!this.participants.includes(agentId)) throw new Error(this.tr('该模型不在参与者中', 'This model is not a participant'));
     if (!['talk', 'propose'].includes(role)) throw new Error('unknown role: ' + role);
     if (!this.writeAgents[agentId] && (role !== 'talk' || arbiter)) throw new Error(this.tr('该模型无安全写模式，只能作为纯讨论者', 'This model has no safe write mode — it can only be a pure discussant'));
+    // 仲裁至多一位（多仲裁=把冲突问题复制一层）：授予即从他人处转移，连同决断档一并摘除
+    if (arbiter) {
+      for (const pid of this.participants) {
+        if (pid !== agentId && this.roleOf(pid).arbiter) this.perms[pid] = { ...this.perms[pid], role: this.roleOf(pid).role, arbiter: false, decide: false };
+      }
+    }
     this.perms[agentId] = { role, arbiter: !!arbiter, decide: !!arbiter && !!decide };
     await this.saveMeta();
   }

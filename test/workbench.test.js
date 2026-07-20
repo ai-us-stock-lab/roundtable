@@ -230,6 +230,13 @@ test('角色叠加制：能力×仲裁四组合、讨论者拦指派、能力上
   assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: true, decide: true });
   await assert.rejects(() => w.setRole('m2', 'propose'), /无安全写模式/);       // 能力是上限
   await assert.rejects(() => w.setRole('m2', 'talk', true), /无安全写模式/);    // 仲裁也需写能力（融合要写文件）
+  // 仲裁至多一位：转移式——授予 m3 即从 m1 摘除（连同决断档）
+  w.participants.push('m3');
+  w.writeAgents.m3 = agents.m1;
+  await w.setRole('m3', 'talk', true);
+  assert.deepEqual(w.roleOf('m3'), { role: 'talk', arbiter: true, decide: false });
+  assert.deepEqual(w.roleOf('m1').arbiter, false); // m1 的仲裁与决断被转移摘除
+  assert.equal(w.roleOf('m1').role, 'propose');    // 能力保留
   // 旧格式兼容：阶梯制 arbiter → 提案者+仲裁；两位制 apply → 同
   w.perms.m1 = { role: 'arbiter', decide: true };
   assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: true, decide: true });

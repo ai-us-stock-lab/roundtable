@@ -43,6 +43,9 @@ function renderWbParticipantPicker() {
       acb.className = 'wb-arbiter';
       acb.dataset.agent = id;
       acb.onclick = e => e.stopPropagation(); // 防串到参与勾选
+      acb.onchange = () => { // 仲裁至多一位：勾选即从他人处转移（单选语义）
+        if (acb.checked) document.querySelectorAll('#wbParticipants input.wb-arbiter').forEach(o => { if (o !== acb) o.checked = false; });
+      };
       arb.append(acb, ' ' + t('role.arbiter'));
       arb.title = t('wb.arbiterTip');
       label.appendChild(arb);
