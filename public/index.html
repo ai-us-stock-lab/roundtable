@@ -86,28 +86,33 @@
         <span id="wbMembers"></span>
         <button id="wbPromote" class="accent-outline" data-i18n="wb.promote" data-i18n-title="wb.promoteTitle" title="把这段讨论打包成会议草稿，开一场正式委员会">升格为会议</button>
       </div>
-      <div id="wbLog"></div>
-      <div id="wbBar">
-        <div id="wbRecipients"></div>
-        <textarea id="wbInput" data-i18n-ph="wb.inputPh" placeholder="发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）"></textarea>
-        <div id="wbActions">
-          <span id="wbRelayCtl"><button id="wbRelay" data-i18n="wb.relay" data-i18n-title="wb.relayTitle" title="让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束">让他们讨论</button><label>× <input id="wbRounds" type="number" min="1" max="8" value="2"> <span data-i18n="arena.rounds">轮</span></label></span>
-          <button id="wbStop" hidden data-i18n="wb.stop">停止</button>
-          <button id="wbSend" class="primary" data-i18n="wb.send">发送</button>
-        </div>
-      </div>
-      <details id="wbActionPanel" hidden>
-        <summary data-i18n="wb.actionTitle">🔧 动手（隔离副本 · diff 审批）</summary>
-        <div class="wb-action-body">
-          <div id="wbPermRows"></div>
-          <label><span data-i18n="wb.actor">执行者</span> <select id="wbActor"></select></label>
-          <textarea id="wbTask" data-i18n-ph="wb.taskPh" placeholder="动手任务：要改什么、为什么、验收标准……（Ctrl+Enter 执行）"></textarea>
-          <div class="wb-action-row">
-            <button id="wbBuild" class="primary" data-i18n="wb.build">动手</button>
-            <span class="wb-action-hint" data-i18n="wb.actionHint">在项目的隔离副本中真实改文件；产出 diff 逐文件审批后才落入你的工作区</span>
+      <div id="wbBody">
+        <div id="wbMain">
+          <div id="wbLog"></div>
+          <div id="wbBar">
+            <div id="wbRecipients"></div>
+            <textarea id="wbInput" data-i18n-ph="wb.inputPh" placeholder="发消息……（不勾收件人 = 回复上一个发言的模型；Ctrl+Enter 发送）"></textarea>
+            <div id="wbActions">
+              <span id="wbRelayCtl"><button id="wbRelay" data-i18n="wb.relay" data-i18n-title="wb.relayTitle" title="让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束">让他们讨论</button><label>× <input id="wbRounds" type="number" min="1" max="8" value="2"> <span data-i18n="arena.rounds">轮</span></label></span>
+              <button id="wbStop" hidden data-i18n="wb.stop">停止</button>
+              <button id="wbSend" class="primary" data-i18n="wb.send">发送</button>
+            </div>
           </div>
         </div>
-      </details>
+        <aside id="wbChanges" hidden>
+          <h3 data-i18n="wb.changesTitle">变更</h3>
+          <div id="wbAssign">
+            <div id="wbPermRows"></div>
+            <label><span data-i18n="wb.actor">执行者</span> <select id="wbActor"></select></label>
+            <textarea id="wbTask" data-i18n-ph="wb.taskPh" placeholder="任务：要改什么、为什么、验收标准……（Ctrl+Enter 指派）"></textarea>
+            <div class="wb-action-row">
+              <button id="wbBuild" class="primary" data-i18n="wb.assign">指派修改</button>
+            </div>
+            <span class="wb-action-hint" data-i18n="wb.actionHint">在项目的隔离副本中真实改文件；产出 diff 逐文件审批后才落入你的工作区</span>
+          </div>
+          <div id="wbChangesList"></div>
+        </aside>
+      </div>
     </section>
     <section id="archiveView" hidden>
       <div id="archiveBar"><button id="archiveBack" data-i18n="archive.back">← 返回</button> <strong id="archiveTopic"></strong> <button id="archiveResume" class="accent-outline" data-i18n="archive.resume">恢复此会话</button></div>

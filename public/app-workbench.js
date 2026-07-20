@@ -76,6 +76,45 @@ function renderRichText(container, text) {
   }
 }
 
+// ---- 变更卡账本（右栏）：聊天流只留轻量引用，完整卡片在 #wbChangesList ----
+const wbChangeNo = {}; // buildId -> 序号（按到达顺序）
+function changeNoOf(buildId) {
+  if (!(buildId in wbChangeNo)) wbChangeNo[buildId] = Object.keys(wbChangeNo).length + 1;
+  return wbChangeNo[buildId];
+}
+
+function upsertChangeCard(build) {
+  const list = $('#wbChangesList');
+  const no = changeNoOf(build.buildId);
+  const wrap = document.createElement('div');
+  wrap.className = 'wb-change';
+  const head = document.createElement('div');
+  head.className = 'wb-change-head';
+  head.textContent = t('wb.changeNo', { n: no });
+  wrap.appendChild(head);
+  wrap.appendChild(renderBuildCard(build));
+  const old = list.querySelector(`.wb-change[data-build-id="${CSS.escape(build.buildId)}"]`);
+  wrap.dataset.buildId = build.buildId;
+  if (old) old.replaceWith(wrap);
+  else list.prepend(wrap); // 最新在上
+  $('#wbChanges').hidden = false; // 有卡必有家
+}
+
+function appendChangeRef(buildId, stat) {
+  const div = document.createElement('div');
+  div.className = 'chat-sys wb-change-ref';
+  const a = document.createElement('a');
+  a.href = 'javascript:void(0)';
+  a.textContent = t('wb.changeRef', { n: changeNoOf(buildId), stat: stat ?? '' });
+  a.onclick = () => {
+    const card = $('#wbChangesList').querySelector(`.wb-change[data-build-id="${CSS.escape(buildId)}"]`);
+    if (card) { card.scrollIntoView({ block: 'start' }); card.classList.add('wb-change-flash'); setTimeout(() => card.classList.remove('wb-change-flash'), 1200); }
+  };
+  div.appendChild(a);
+  $('#wbLog').appendChild(div);
+  $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+}
+
 function appendWbMessage(from, name, to, text, ctx, build) {
   const el = wbTyping[from]; if (el) { el.remove(); delete wbTyping[from]; }
   const div = document.createElement('div');
@@ -95,7 +134,7 @@ function appendWbMessage(from, name, to, text, ctx, build) {
     chip.textContent = t('dyn.ctxChip', { shown: ctx.shown, total: ctx.total });
     div.appendChild(chip);
   }
-  if (build) div.appendChild(renderBuildCard(build));
+  if (build) { upsertChangeCard(build); appendChangeRef(build.buildId, build.stat); }
   $('#wbLog').appendChild(div);
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
 }
@@ -283,7 +322,7 @@ function onWbEvent(ev) {
     $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
   }
   if (ev.type === 'build-status') {
-    const card = $('#wbLog').querySelector(`.build-card[data-build-id="${ev.buildId}"]`);
+    const card = $('#wbChangesList').querySelector(`.build-card[data-build-id="${ev.buildId}"]`);
     if (card?.updateStatus) card.updateStatus(ev.status, ev.files);
   }
   if (ev.type === 'state') { setWbBusy(ev.data === 'busy'); if (ev.data === 'idle') removeLiveBox(); }
@@ -343,6 +382,8 @@ async function attachWorkbench(id) {
     members.appendChild(ws);
   }
   $('#wbLog').innerHTML = '';
+  $('#wbChangesList').innerHTML = '';
+  for (const k of Object.keys(wbChangeNo)) delete wbChangeNo[k]; // 变更序号按台重置
   wbInfo = info;
   wbLastSpeaker = null;
   renderWbRecipients();
@@ -416,13 +457,15 @@ function updateWbRouteHint() {
   renderWbActionPanel(); // 成员/能力变化同步动手面板
 }
 
-// 动手面板：独立 section——权限行（两级权限）+ 执行者显式指定 + 任务专用输入框
+// 「变更」右栏：指派区（权限行 + 执行者 + 任务框）+ 变更卡列表（diff 全生命周期的账本）
 function renderWbActionPanel() {
-  const panel = $('#wbActionPanel');
+  const panel = $('#wbChanges');
   if (!wbInfo) { panel.hidden = true; return; }
   const capable = wbInfo.participants.filter(id => (wbInfo.writeCapable ?? []).includes(id));
-  panel.hidden = !(wbInfo.workspace && capable.length);
-  if (panel.hidden) return;
+  // 挂了工作区就显示右栏（历史变更卡也要有家）；没有可写成员时只隐藏指派区
+  panel.hidden = !wbInfo.workspace;
+  $('#wbAssign').hidden = !capable.length;
+  if (panel.hidden || !capable.length) return;
   renderWbPermRows();
   const sel = $('#wbActor');
   const prev = sel.value;
