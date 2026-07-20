@@ -15,6 +15,7 @@
 Two rooms on one chassis:
 
 - **Workbench** (everyday): pick models and just chat. Unaddressed messages route to whoever spoke last; address one model or broadcast to all. Hit "let them talk" and the models take turns responding to each other for N rounds — encouraged to push back and question each other by name, auto-stopping when the discussion converges. Long histories are trimmed whole-message with a visible "this model only sees the last N messages" chip — never silently. One click promotes the chat into a formal committee meeting.
+  - Each participant enters with a **role**: **Discussant** (talks, reviews, never touches files), **Proposer** (discussant + can be assigned changes — edits real files in an isolated copy, producing a diff you approve per file), or **Arbiter** (proposer + on conflicts, digests pro/con for your call and executes the merge; an explicit "decide for me" tier can delegate the pick — applying to your workspace always stays yours). Engines without a vetted safe-write mode (no `writeArgs` in their adapter) are discussant-only — the isolated copy contains the blast radius, but an unfenced CLI could still run arbitrary commands inside it, so no fence, no write.
 - **Committee** (when it counts): when Claude Code says A and Codex says B, Roundtable runs a structured committee instead of letting you coin-flip:
 
 ```
@@ -131,6 +132,7 @@ License: MIT
 两种房间，一套底盘：
 
 - **工作台**（高频日常）：勾选模型直接群聊，随时追问、点名任意模型接力，还能让模型之间就你的话题**互聊 N 轮**（互相反驳、追问，聊无可聊自动收敛）
+  - 每位参与者入场即定**角色**：**讨论者**（只动嘴，永不碰文件）、**提案者**（讨论者 + 可被指派修改——在隔离副本真实改文件，产出 diff 由你逐文件批准）、**仲裁者**（提案者 + 冲突时整理 pro/con 供你拍板并执行融合；可显式授予「替我决断」档——但应用进工作区的批准权永远在你）。未声明安全写模式（adapter 无 `writeArgs`）的引擎只能当讨论者：隔离副本管住改动外溢，安全写模式管住过程越权，缺一层就不给写权。
 - **会议**（低频重决策）：完整委员会流程，见下
 
 Claude Code 说 A，Codex 说 B——听谁的？会议模式不让它们各说各话，而是走完整的委员会流程：
