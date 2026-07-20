@@ -32,6 +32,19 @@
         <label><span data-i18n="setup.judge">仲裁</span> <select id="judge"></select></label>
         <label data-i18n-title="setup.scribeTitle" title="每轮把双方发言整理成滚动摘要与分歧分类表的角色"><span data-i18n="setup.scribe">书记（摘要）</span> <select id="summ"></select></label>
       </div>
+      <details id="tplPreview">
+        <summary data-i18n="setup.templatePreview">模板格式预览</summary>
+        <div class="tpl-preview-sections">
+          <section class="tpl-preview-section">
+            <h2 data-i18n="setup.debaterFormat">辩手输出格式</h2>
+            <pre id="tplDebaterFormat"></pre>
+          </section>
+          <section class="tpl-preview-section">
+            <h2 data-i18n="setup.judgeFormat">裁决卡格式</h2>
+            <pre id="tplJudgeFormat"></pre>
+          </section>
+        </div>
+      </details>
       <button id="start" class="primary" data-i18n="setup.start">开始第 1 轮（clean room）</button>
     </section>
     <main id="arena" hidden>

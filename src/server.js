@@ -231,7 +231,11 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
       if (url.pathname === '/api/config') {
         // 只暴露 name/roles/unavailable，不泄漏 command/envWhitelist 等 adapter 细节
         const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, write: !!a.writeArgs, ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
-        const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, { title: t.title }]));
+        const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, {
+          title: t.title,
+          debaterFormat: t.debaterFormat,
+          judgeFormat: t.judgeFormat,
+        }]));
         return json(res, 200, { agents: pub, templates: tpl, stale: await backendStale() });
       }
       if (url.pathname === '/api/sessions' && req.method === 'GET') {

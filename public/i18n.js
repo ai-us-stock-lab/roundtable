@@ -212,6 +212,10 @@ const I18N = {
   'dyn.checkFail': { zh: '✗ 检查未通过（exit {code}）', en: '✗ check failed (exit {code})' },
   'dyn.viewOutput': { zh: '查看输出', en: 'View output' },
   'dyn.noOutput': { zh: '（无输出）', en: '(no output)' },
+  'setup.templatePreview': { zh: '模板格式预览', en: 'Template format preview' },
+  'setup.debaterFormat': { zh: '辩手输出格式', en: 'Debater output format' },
+  'setup.judgeFormat': { zh: '裁决卡格式', en: 'Verdict card format' },
+  'setup.defaultJudgeFormat': { zh: '该模板未定制，使用默认裁决卡格式', en: 'This template does not customize it; the default verdict card format will be used.' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
@@ -239,7 +243,11 @@ function applyI18n(root = document) {
 }
 
 function setLang(lang) {
+  LANG = lang;
   localStorage.setItem('rt-lang', lang);
+  // 防御性刷新模板预览：当前实现整页重载后 boot 会重渲染（实测已覆盖语言切换）；
+  // 此调用保证未来若改为不重载的切换实现，预览仍随语言即时刷新
+  if (typeof renderTemplatePreview === 'function') renderTemplatePreview();
   location.reload(); // 最稳：新语言在 localStorage，刷新后全量按新语言渲染
 }
 

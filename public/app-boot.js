@@ -16,13 +16,23 @@ async function boot() {
   $('#judge').innerHTML = opts('judge');
   $('#summ').innerHTML = opts('summarizer');
   $('#tpl').innerHTML = Object.entries(cfg.templates).map(([n, t]) => `<option value="${n}">${localizeField(t.title)}</option>`).join('');
+  $('#tpl').addEventListener('change', renderTemplatePreview);
+  renderTemplatePreview();
   $('#staleBanner').hidden = !cfg.stale; // 前端新后端旧 → 常驻横幅提醒重启
   renderAgentStatus();
   renderWbParticipantPicker(); // 统一容器：落地默认视图是建台页，选人器开机即就绪
   await refreshSessionList();
   await applyDraftFromHash();
+  renderTemplatePreview();
   // 页面已开着时又发起新会议（仅 hash 变化不重载）→ 同样要预填
   window.addEventListener('hashchange', applyDraftFromHash);
+}
+
+function renderTemplatePreview() {
+  const template = cfg?.templates?.[$('#tpl').value];
+  if (!template) return;
+  $('#tplDebaterFormat').textContent = localizeField(template.debaterFormat);
+  $('#tplJudgeFormat').textContent = localizeField(template.judgeFormat) || t('setup.defaultJudgeFormat');
 }
 
 $('#newSessionBtn').onclick = () => {
