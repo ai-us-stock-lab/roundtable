@@ -533,6 +533,8 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           req.on('close', () => entry.clients.delete(res));
           return;
         }
+        if (action === 'conflicts' && req.method === 'GET')
+          return json(res, 200, b.conflictSheet());
         if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
         const body = await readBody(req);
         if (action === 'message') {
@@ -556,6 +558,21 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
           const order = (Array.isArray(body.order) ? body.order : []).filter(x => b.participants.includes(x));
           b.relay(body.rounds, order).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
+          return json(res, 200, { ok: true });
+        }
+        if (action === 'conflict-discuss') {
+          const conflictPath = String(body.path ?? '');
+          if (!conflictPath.trim()) return json(res, 400, { error: '文件路径不能为空' });
+          if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          b.discussConflict(conflictPath).catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
+          return json(res, 200, { ok: true });
+        }
+        if (action === 'conflict-merge') {
+          const conflictPath = String(body.path ?? '');
+          if (!conflictPath.trim()) return json(res, 400, { error: '文件路径不能为空' });
+          if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          b.mergeConflict(conflictPath, { decide: !!body.decide, note: String(body.note ?? '') })
+            .catch(e => entry.emit({ type: 'error', data: String(e.message ?? e) }));
           return json(res, 200, { ok: true });
         }
         if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }

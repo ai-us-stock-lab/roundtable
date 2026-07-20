@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -679,4 +679,140 @@ test('server: build-progress 不进回放缓冲（防长命工作台无界增长
     assert.equal(progressBuffered, 0, 'build-progress 不应进缓冲');
     assert.equal(chatBuffered, 1, 'chat-message 应进缓冲');
   } finally { srv.close(); }
+});
+
+// ---- 分歧处置流：冲突清单 / 深入讨论 / 仲裁融合两档 ----
+function seedPendingConflict(w, filePath = 'from-agent.txt') {
+  const records = [
+    { buildId: 'b-old', agentId: 'm1', instruction: '采用方案一', ts: '2026-07-21T01:00:00.000Z', value: 'shown-one' },
+    { buildId: 'b-new', agentId: 'm2', instruction: '采用方案二', ts: '2026-07-21T02:00:00.000Z', value: 'shown-two' },
+  ];
+  mkdirSync(path.join(w.dir, 'builds'), { recursive: true });
+  for (const record of records) {
+    w.builds.push({
+      buildId: record.buildId, agentId: record.agentId, instruction: record.instruction,
+      stat: filePath, status: 'pending', files: [{ path: filePath, status: 'pending' }], ts: record.ts,
+    });
+    const patch = [
+      `diff --git a/${filePath} b/${filePath}`,
+      'new file mode 100644',
+      '--- /dev/null',
+      `+++ b/${filePath}`,
+      '@@ -0,0 +1 @@',
+      `+${record.value}`,
+      '',
+    ].join('\n');
+    writeFileSync(w.patchPathOf(record.buildId), patch);
+    writeFileSync(w.rawPatchPathOf(record.buildId), patch.replace(record.value, 'RAW_SECRET_MUST_NOT_APPEAR'));
+  }
+}
+
+test('conflictSheet: 只列两个不同待批 build 的共同路径，按时间排序，处理后消失', () => {
+  const w = new Workbench({
+    name: 'conflicts', agents: MOCK_AGENTS(), participants: ['m1', 'm2'],
+    baseDir: '.', emit: () => {},
+  });
+  w.builds.push(
+    {
+      buildId: 'b2', agentId: 'm2', instruction: 'later', status: 'pending', ts: '2026-07-21T02:00:00.000Z',
+      files: [{ path: 'shared.js', status: 'pending' }, { path: 'only-m2.js', status: 'pending' }],
+    },
+    {
+      buildId: 'b1', agentId: 'm1', instruction: 'earlier', status: 'pending', ts: '2026-07-21T01:00:00.000Z',
+      files: [{ path: 'shared.js', status: 'pending' }, { path: '(全部)', status: 'pending' }],
+    },
+  );
+
+  assert.deepEqual(w.conflictSheet(), {
+    conflicts: [{
+      path: 'shared.js',
+      builds: [
+        { buildId: 'b1', actorId: 'm1', actorName: 'M1', instruction: 'earlier' },
+        { buildId: 'b2', actorId: 'm2', actorName: 'M2', instruction: 'later' },
+      ],
+    }],
+  });
+  w.builds[1].files[0].status = 'applied';
+  assert.deepEqual(w.conflictSheet(), { conflicts: [] });
+});
+
+test('discussConflict: 仲裁生成结构化对比并落入消息，非冲突路径拒绝', async () => {
+  process.env.MOCK_FIXED_OUTPUT = '## 方案 1\n收益：稳妥';
+  try {
+    const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-conflict-discuss-'));
+    const events = [];
+    const w = new Workbench({
+      name: 'discuss', agents: MOCK_AGENTS(), participants: ['m1', 'm2'], baseDir,
+      emit: event => events.push(event), writeAgents: { m1: WRITE_AGENT, m2: WRITE_AGENT },
+    });
+    await w.init();
+    seedPendingConflict(w);
+    await w.setRole('m2', 'talk', true, false);
+
+    const result = await w.discussConflict('from-agent.txt');
+    assert.equal(result.ok, true);
+    assert.equal(w.messages.length, 1);
+    assert.equal(w.messages[0].from, 'm2');
+    assert.match(w.messages[0].text, /^【冲突对比 · from-agent\.txt】/);
+    assert.ok(events.some(event => event.type === 'agent-status' && event.agentId === 'm2' && event.data === 'done'));
+    const saved = readFileSync(path.join(w.dir, 'prompts', 'conflict-0-m2.md'), 'utf8');
+    assert.match(saved, /不要选边，不要给裁决/);
+    assert.match(saved, /shown-one/);
+    assert.ok(!saved.includes('RAW_SECRET_MUST_NOT_APPEAR'), '模型上下文只能读取脱敏版 patch');
+    const persisted = (await loadWorkbenchFromDisk(w.dir)).messages;
+    assert.equal(persisted.at(-1).text, w.messages[0].text);
+    await assert.rejects(() => w.discussConflict('only-one.txt'), /没有冲突的待批变更/);
+  } finally {
+    delete process.env.MOCK_FIXED_OUTPUT;
+  }
+});
+
+test('mergeConflict: 仲裁与决断授权守卫；两档均产普通待批卡并写 decisions.jsonl', async () => {
+  const workspace = makeWorkspaceRepo();
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-conflict-merge-'));
+  const w = new Workbench({
+    name: 'merge', agents: MOCK_AGENTS(), participants: ['m1', 'm2'], baseDir,
+    emit: () => {}, workspace, writeAgents: { m1: WRITE_AGENT, m2: WRITE_AGENT },
+  });
+  await w.init();
+  seedPendingConflict(w);
+
+  await assert.rejects(() => w.mergeConflict('from-agent.txt'), /需要一位仲裁/);
+  await w.setRole('m2', 'talk', true, false);
+  await assert.rejects(() => w.mergeConflict('from-agent.txt', { decide: true }), /替我决断/);
+
+  const facilitated = await w.mergeConflict('from-agent.txt', { note: '保留兼容路径' });
+  assert.equal(facilitated.buildId, w.builds.at(-1).buildId);
+  assert.equal(w.builds.at(-1).status, 'pending');
+  assert.match(w.builds.at(-1).instruction, /^【仲裁融合 · from-agent\.txt】/);
+  assert.ok(!existsSync(path.join(workspace, 'from-agent.txt')), '融合卡不得绕过用户审批直接应用');
+
+  await w.setRole('m2', 'talk', true, true);
+  const decided = await w.mergeConflict('from-agent.txt', { decide: true, note: '由仲裁选择' });
+  assert.equal(decided.buildId, w.builds.at(-1).buildId);
+  assert.equal(w.builds.at(-1).status, 'pending');
+  assert.ok(!existsSync(path.join(workspace, 'from-agent.txt')), '决断档也不得绕过用户审批');
+
+  const decisions = readFileSync(path.join(w.dir, 'changes', 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(decisions.map(item => item.tier), ['facilitate', 'decide']);
+  assert.deepEqual(decisions.map(item => item.buildId), [facilitated.buildId, decided.buildId]);
+  assert.deepEqual(decisions.map(item => item.note), ['保留兼容路径', '由仲裁选择']);
+});
+
+test('build: 有文件改动返回 buildId，无文件改动返回 null', async () => {
+  const workspace = makeWorkspaceRepo();
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-build-return-'));
+  const noChangeAgent = {
+    name: 'NoChange', command: [process.execPath, '-e', `console.log('no file changes')`],
+    input: 'stdin', output: 'text', timeoutMs: 10000,
+    envWhitelist: ['PATH', 'SYSTEMROOT'], cwd: process.cwd(),
+  };
+  const w = new Workbench({
+    name: 'return', agents: MOCK_AGENTS(), participants: ['m1', 'm2'], baseDir,
+    emit: () => {}, workspace, writeAgents: { m1: WRITE_AGENT, m2: noChangeAgent },
+  });
+  await w.init();
+  const buildId = await w.build('产生文件', 'm1');
+  assert.equal(buildId, w.builds[0].buildId);
+  assert.equal(await w.build('只检查不修改', 'm2'), null);
 });
