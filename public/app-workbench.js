@@ -26,7 +26,7 @@ function renderWbParticipantPicker() {
       const sel = document.createElement('select');
       sel.className = 'wb-role';
       sel.dataset.agent = id;
-      for (const role of ['talk', 'propose', 'arbiter']) {
+      for (const role of ['talk', 'propose']) {
         const o = document.createElement('option');
         o.value = role;
         o.textContent = t('role.' + role);
@@ -35,6 +35,17 @@ function renderWbParticipantPicker() {
       sel.value = 'propose'; // 有写能力默认提案者
       sel.onclick = e => e.preventDefault(); // 防 label 点击串到 checkbox
       label.appendChild(sel);
+      // 仲裁是叠加职责：任一能力都可兼任（纯裁判=讨论者+仲裁）
+      const arb = document.createElement('label');
+      arb.className = 'wb-perm';
+      const acb = document.createElement('input');
+      acb.type = 'checkbox';
+      acb.className = 'wb-arbiter';
+      acb.dataset.agent = id;
+      acb.onclick = e => e.stopPropagation(); // 防串到参与勾选
+      arb.append(acb, ' ' + t('role.arbiter'));
+      arb.title = t('wb.arbiterTip');
+      label.appendChild(arb);
     } else if (!a.unavailable) {
       const tag = document.createElement('span');
       tag.className = 'wb-role-fixed';
@@ -509,13 +520,13 @@ function renderWbActionPanel() {
   syncWbBuildLabel();
 }
 
-// 角色行（设计定稿 1.5）：每参与者一个角色下拉；仲裁者额外露出「替我决断」档
+// 角色行（叠加制）：能力下拉（讨论者/提案者）+「仲裁」勾选；勾了仲裁再露出「替我决断」档
 function renderWbRoleRows() {
   const box = $('#wbPermRows');
   box.innerHTML = '';
   for (const id of wbInfo.participants) {
     const capable = (wbInfo.writeCapable ?? []).includes(id);
-    const r = wbInfo.roles?.[id] ?? { role: capable ? 'propose' : 'talk', decide: false };
+    const r = wbInfo.roles?.[id] ?? { role: capable ? 'propose' : 'talk', arbiter: false, decide: false };
     const row = document.createElement('div');
     row.className = 'wb-perm-row';
     const name = document.createElement('span');
@@ -524,7 +535,7 @@ function renderWbRoleRows() {
     row.appendChild(name);
     const sel = document.createElement('select');
     sel.className = 'wb-role';
-    for (const role of ['talk', 'propose', 'arbiter']) {
+    for (const role of ['talk', 'propose']) {
       const o = document.createElement('option');
       o.value = role;
       o.textContent = t('role.' + role);
@@ -533,15 +544,25 @@ function renderWbRoleRows() {
     sel.value = r.role;
     sel.disabled = !capable;
     sel.title = capable ? t('wb.roleTip') : t('wb.roleNoWrite');
-    sel.onchange = () => setWbRole(id, sel.value, false);
+    sel.onchange = () => setWbRole(id, sel.value, r.arbiter, r.decide);
     row.appendChild(sel);
-    if (r.role === 'arbiter' && capable) {
+    const arb = document.createElement('label');
+    arb.className = 'wb-perm';
+    const acb = document.createElement('input');
+    acb.type = 'checkbox';
+    acb.checked = !!r.arbiter;
+    acb.disabled = !capable;
+    acb.onchange = () => setWbRole(id, sel.value, acb.checked, false);
+    arb.append(acb, ' ' + t('role.arbiter'));
+    arb.title = capable ? t('wb.arbiterTip') : t('wb.roleNoWrite');
+    row.appendChild(arb);
+    if (r.arbiter && capable) {
       const label = document.createElement('label');
       label.className = 'wb-perm';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = !!r.decide;
-      cb.onchange = () => setWbRole(id, 'arbiter', cb.checked);
+      cb.onchange = () => setWbRole(id, sel.value, true, cb.checked);
       label.append(cb, ' ' + t('wb.decide'));
       label.title = t('wb.decideTip');
       row.appendChild(label);
@@ -550,9 +571,9 @@ function renderWbRoleRows() {
   }
 }
 
-async function setWbRole(agentId, role, decide) {
+async function setWbRole(agentId, role, arbiter, decide) {
   let r;
-  try { r = await (await fetch(`/api/workbenches/${wbId}/role`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId, role, decide }) })).json(); }
+  try { r = await (await fetch(`/api/workbenches/${wbId}/role`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId, role, arbiter, decide }) })).json(); }
   catch (e) { r = { error: e.message }; }
   if (r.error) { appendWbError(r.error); } else { wbInfo.roles = r.roles; }
   renderWbActionPanel();
@@ -594,14 +615,17 @@ async function sendWbMessage() {
 
 // ---- 工作台按钮绑定 ----
 $('#wbCreate').onclick = async () => {
-  const participants = [...$('#wbParticipants').querySelectorAll('input:checked')].map(cb => cb.value);
+  const participants = [...$('#wbParticipants').querySelectorAll('input:checked:not(.wb-arbiter)')].map(cb => cb.value); // 仲裁勾选框不是参与勾选
   const bar = $('#wbSetupBar');
   const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
   if (!participants.length) return err(t('dyn.pickParticipant'));
-  // 入场即定角色：读每行的角色下拉（无下拉=讨论者,由后端默认处理）
+  // 入场即定角色：能力下拉 + 仲裁叠加勾选（无控件=纯讨论者,由后端默认处理）
   const roles = {};
   for (const sel of $('#wbParticipants').querySelectorAll('select.wb-role')) {
     if (participants.includes(sel.dataset.agent)) roles[sel.dataset.agent] = { role: sel.value };
+  }
+  for (const cb of $('#wbParticipants').querySelectorAll('input.wb-arbiter')) {
+    if (roles[cb.dataset.agent]) roles[cb.dataset.agent].arbiter = cb.checked;
   }
   let r;
   try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants, roles, lang: LANG }) })).json(); }

@@ -213,24 +213,29 @@ test('relay: en 会话用英文收敛标记，同样提前终止', async () => {
   } finally { delete process.env.MOCK_FIXED_OUTPUT; }
 });
 
-test('角色模型：默认提案者/讨论者，讨论者拦动手，能力上限，仲裁两档，旧格式兼容', async () => {
+test('角色叠加制：能力×仲裁四组合、讨论者拦指派、能力上限、决断档、旧格式兼容', async () => {
   const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-perm-'));
   const agents = MOCK_AGENTS();
   const w = new Workbench({ name: 'pp', agents, participants: ['m1', 'm2'], baseDir, emit: () => {}, workspace: baseDir, writeAgents: { m1: agents.m1 } });
   await w.init();
-  assert.deepEqual(w.roleOf('m1'), { role: 'propose', decide: false }); // 有写能力默认提案者
-  assert.deepEqual(w.roleOf('m2'), { role: 'talk', decide: false });    // 无写能力恒讨论者
-  await w.setRole('m1', 'talk');
-  await assert.rejects(() => w.build('改点东西', 'm1'), /讨论者|discussant/); // 讨论者 → 动手被拦
-  await assert.rejects(() => w.setRole('m2', 'propose'), /无安全写模式/);      // 能力是上限
-  await w.setRole('m1', 'arbiter', true);
-  assert.deepEqual(w.roleOf('m1'), { role: 'arbiter', decide: true });  // 仲裁者「替我决断」档
-  assert.deepEqual(w.permOf('m1'), { propose: true, apply: true, decide: true }); // 仲裁者可提案（两 agent 场景）
-  // 旧两位格式兼容映射
+  assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: false, decide: false }); // 有写能力默认提案者
+  assert.deepEqual(w.roleOf('m2'), { role: 'talk', arbiter: false, decide: false });    // 无写能力恒纯讨论者
+  // 纯裁判：讨论者 + 仲裁 —— 不能被指派提案，但可执行融合
+  await w.setRole('m1', 'talk', true);
+  assert.deepEqual(w.permOf('m1'), { propose: false, apply: true, decide: false });
+  await assert.rejects(() => w.build('改点东西', 'm1'), /讨论者|discussant/);
+  // 提案者 + 仲裁 + 决断档（两 agent 小场子配置）
+  await w.setRole('m1', 'propose', true, true);
+  assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: true, decide: true });
+  await assert.rejects(() => w.setRole('m2', 'propose'), /无安全写模式/);       // 能力是上限
+  await assert.rejects(() => w.setRole('m2', 'talk', true), /无安全写模式/);    // 仲裁也需写能力（融合要写文件）
+  // 旧格式兼容：阶梯制 arbiter → 提案者+仲裁；两位制 apply → 同
+  w.perms.m1 = { role: 'arbiter', decide: true };
+  assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: true, decide: true });
+  w.perms.m1 = { apply: true };
+  assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: true, decide: false });
   w.perms.m1 = { propose: false };
   assert.equal(w.roleOf('m1').role, 'talk');
-  w.perms.m1 = { apply: true };
-  assert.equal(w.roleOf('m1').role, 'arbiter');
 });
 
 test('中途增删参与者：移除清 buildSessions 与 lastSpeaker，至少留一人，可再加回', async () => {

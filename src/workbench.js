@@ -166,29 +166,32 @@ export class Workbench {
     });
   }
 
-  // 角色模型（设计定稿 1.5）：讨论者 talk / 提案者 propose / 仲裁者 arbiter（decide=替用户决断档）。
-  // 写能力是硬上限：无 writeArgs 的引擎恒为讨论者。旧两位 {propose,apply} 元数据自动映射。
+  // 角色模型（设计定稿 1.5，2026-07-21 二次修订为叠加制）：
+  // 能力轴 role: talk（讨论者）| propose（提案者）——是否可产出 diff 提案；
+  // 仲裁 arbiter: 叠加职责，可配在任一能力上（纯裁判=talk+arbiter，利益回避的理想配置）；
+  // decide: 仲裁的「替用户决断」档。写能力是硬上限：无 writeArgs 恒为纯讨论者
+  //（提案与执行融合都要写文件）。旧格式（role:'arbiter' 或 {propose,apply} 两位）自动映射。
   roleOf(id) {
     const capable = !!this.writeAgents[id];
-    if (!capable) return { role: 'talk', decide: false };
+    if (!capable) return { role: 'talk', arbiter: false, decide: false };
     const p = this.perms[id] ?? {};
-    if (p.role) return { role: p.role, decide: p.role === 'arbiter' && !!p.decide };
-    // 旧格式兼容：apply→仲裁者；propose 显式 false→讨论者；默认→提案者
-    if (p.apply) return { role: 'arbiter', decide: false };
-    return { role: p.propose === false ? 'talk' : 'propose', decide: false };
+    if (p.role === 'arbiter') return { role: 'propose', arbiter: true, decide: !!p.decide }; // 上一版阶梯制映射
+    if (p.role) return { role: p.role, arbiter: !!p.arbiter, decide: !!p.arbiter && !!p.decide };
+    if (p.apply) return { role: 'propose', arbiter: true, decide: false }; // 最初两位制映射
+    return { role: p.propose === false ? 'talk' : 'propose', arbiter: false, decide: false };
   }
 
-  // 派生能力位（供动手拦截等使用）：propose=可产出 diff（提案者与仲裁者都可——多数用户只有两个 agent）
+  // 派生能力位：propose=可被指派产出 diff；apply=可执行融合（仲裁职责）；decide=决断档
   permOf(id) {
-    const { role, decide } = this.roleOf(id);
-    return { propose: role === 'propose' || role === 'arbiter', apply: role === 'arbiter', decide };
+    const { role, arbiter, decide } = this.roleOf(id);
+    return { propose: role === 'propose', apply: arbiter, decide };
   }
 
-  async setRole(agentId, role, decide = false) {
+  async setRole(agentId, role, arbiter = false, decide = false) {
     if (!this.participants.includes(agentId)) throw new Error(this.tr('该模型不在参与者中', 'This model is not a participant'));
-    if (!['talk', 'propose', 'arbiter'].includes(role)) throw new Error('unknown role: ' + role);
-    if (!this.writeAgents[agentId] && role !== 'talk') throw new Error(this.tr('该模型无安全写模式，只能作为讨论者', 'This model has no safe write mode — it can only be a discussant'));
-    this.perms[agentId] = { role, decide: role === 'arbiter' && !!decide };
+    if (!['talk', 'propose'].includes(role)) throw new Error('unknown role: ' + role);
+    if (!this.writeAgents[agentId] && (role !== 'talk' || arbiter)) throw new Error(this.tr('该模型无安全写模式，只能作为纯讨论者', 'This model has no safe write mode — it can only be a pure discussant'));
+    this.perms[agentId] = { role, arbiter: !!arbiter, decide: !!arbiter && !!decide };
     await this.saveMeta();
   }
 
