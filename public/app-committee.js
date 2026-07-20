@@ -282,9 +282,32 @@ function onEvent(ev) {
   if (ev.type === 'judge-card') {
     $('#judgecard').hidden = false;
     $('#judgecard pre').textContent = ev.data;
-    $('#flowback').hidden = !sessionOrigin; // 升格而来的会议才有回流通道
+    $('#flowback').hidden = !sessionOrigin; // 升格而来的会议：一键回来源
+    if (!sessionOrigin) populateFlowbackTargets(); // 无来源：可投放到任意工作台
     refreshSessionList();
   }
+}
+
+// 无来源会议的裁决卡投放：列出全部工作台（活动+归档）供选择
+async function populateFlowbackTargets() {
+  let list;
+  try { list = await (await fetch('/api/sessions')).json(); } catch { return; }
+  const benches = list.filter(s => s.type === 'workbench');
+  const wrap = $('#flowbackAnyWrap');
+  if (!benches.length) { wrap.hidden = true; return; }
+  const sel = $('#flowbackTarget');
+  sel.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = t('arena.flowbackPick');
+  sel.appendChild(ph);
+  for (const b of benches) {
+    const o = document.createElement('option');
+    o.value = b.archived ? b.id : b.dirname; // 两种形态统一为目录名寻址
+    o.textContent = (b.topic || '').replace(/^\[工作台\] /, '') || o.value;
+    if (o.value) sel.appendChild(o);
+  }
+  wrap.hidden = false;
 }
 
 async function sendNote({ announce = false } = {}) {
@@ -315,6 +338,7 @@ function resetSessionUI() {
   $('#summary').textContent = '';
   $('#judgecard').hidden = true; $('#judgecard pre').textContent = '';
   $('#flowback').hidden = true; sessionOrigin = '';
+  $('#flowbackAnyWrap').hidden = true;
   const statebar = $('#statebar'); statebar.textContent = ''; statebar.hidden = true; statebar.classList.remove('err');
   const setupbar = $('#setupbar'); setupbar.textContent = ''; setupbar.hidden = true; setupbar.classList.remove('err');
   roundDivs = {};
@@ -450,13 +474,15 @@ $('#chatInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#chatSend').onclick(); }
 });
 $('#copycard').onclick = () => navigator.clipboard.writeText($('#judgecard pre').textContent);
-$('#flowback').onclick = async () => {
+async function doFlowback(target) {
   let r;
-  try { r = await (await fetch(`/api/sessions/${sid}/flowback`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json(); }
+  try { r = await (await fetch(`/api/sessions/${sid}/flowback`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(target ? { target } : {}) })).json(); }
   catch (e) { return setStatebar(t('dyn.flowbackFail', { msg: e.message }), true); }
   if (r.error) return setStatebar(r.error, true);
   await attachWorkbench(r.benchId); // 裁决卡已贴回，切到工作台接着聊
-};
+}
+$('#flowback').onclick = () => doFlowback();
+$('#flowbackGo').onclick = () => { const v = $('#flowbackTarget').value; if (v) doFlowback(v); };
 for (const [sel, side] of [['#colA', 'A'], ['#colB', 'B']]) {
   $(sel + ' .retry').onclick = () => api('retry', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });
   $(sel + ' .skip').onclick = () => api('skip', { agentId: Object.keys(sideOf).find(k => sideOf[k] === side) });
