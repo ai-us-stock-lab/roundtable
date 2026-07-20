@@ -216,6 +216,16 @@ const I18N = {
   'setup.debaterFormat': { zh: '辩手输出格式', en: 'Debater output format' },
   'setup.judgeFormat': { zh: '裁决卡格式', en: 'Verdict card format' },
   'setup.defaultJudgeFormat': { zh: '该模板未定制，使用默认裁决卡格式', en: 'This template does not customize it; the default verdict card format will be used.' },
+  'wb.conflictsTitle': { zh: '⚠ 冲突待处置', en: '⚠ Conflicts to resolve' },
+  'wb.conflictInvolves': { zh: '涉及：', en: 'Involves:' },
+  'wb.discussBtn': { zh: '深入讨论', en: 'Discuss deeper' },
+  'wb.discussBusy': { zh: '对比生成中…', en: 'Generating comparison…' },
+  'wb.mergeBtn': { zh: '仲裁融合', en: 'Arbiter merge' },
+  'wb.decideBtn': { zh: '按授权决断', en: 'Decide as authorized' },
+  'wb.needArbiterTip': { zh: '先在上方给一位参与者勾选仲裁', en: 'First assign one participant as arbiter above' },
+  'wb.needDecideTip': { zh: '该仲裁未勾「替我决断」', en: 'This arbiter does not have "Decide for me" enabled' },
+  'wb.conflictBadge': { zh: '⚠ 冲突', en: '⚠ Conflict' },
+  'wb.conflictHint': { zh: '重叠的变更不会被拦截或默判——看对比、做决定，或交给仲裁融合；最终应用仍需你逐文件批准', en: 'Overlapping changes are neither blocked nor decided silently. Review the comparison, decide, or ask the arbiter to merge; you still approve each file before it is applied.' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');

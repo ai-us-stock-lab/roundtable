@@ -5,8 +5,16 @@ const wbTyping = {};      // agentId -> "正在输入…" 元素
 let wbLiveBox = null;     // 动手实时输出盒（完成后移除，正式消息+diff 卡随 chat-message 到来）
 // wbInfo 声明在 app-core.js（跨模块共享）；这里只读写
 let wbLastSpeaker = null; // 隐式路由目标（前端镜像：跟随 chat-message 事件）
+let wbConflictRefreshTimer = null;
+const wbConflictDiscussTimers = new Map(); // path -> 5 秒兜底恢复 timer
 
-function closeWbEvents() { if (wbEs) { wbEs.close(); wbEs = null; } wbId = null; }
+function closeWbEvents() {
+  if (wbEs) { wbEs.close(); wbEs = null; }
+  if (wbConflictRefreshTimer !== null) { clearTimeout(wbConflictRefreshTimer); wbConflictRefreshTimer = null; }
+  for (const timer of wbConflictDiscussTimers.values()) clearTimeout(timer);
+  wbConflictDiscussTimers.clear();
+  wbId = null;
+}
 
 // 建台选人：勾选参与 + 入场即定角色（讨论者/提案者/仲裁者）。无安全写模式的引擎固定为讨论者
 function renderWbParticipantPicker() {
@@ -149,6 +157,179 @@ function appendChangeRef(buildId, stat) {
   div.appendChild(a);
   $('#wbLog').appendChild(div);
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+}
+
+function clearWbConflictDiscussBusy(path) {
+  const timer = wbConflictDiscussTimers.get(path);
+  if (timer !== undefined) clearTimeout(timer);
+  wbConflictDiscussTimers.delete(path);
+  document.querySelectorAll('#wbConflicts .wb-conflict-discuss').forEach(btn => {
+    if (btn.dataset.path !== path) return;
+    btn.disabled = false;
+    btn.textContent = t('wb.discussBtn');
+    btn.removeAttribute('aria-busy');
+  });
+}
+
+function syncWbConflictAuthority() {
+  const participantIds = wbInfo?.participants ?? [];
+  const hasArbiter = participantIds.some(id => wbInfo.roles?.[id]?.arbiter === true);
+  const hasDecidingArbiter = participantIds.some(id => wbInfo.roles?.[id]?.arbiter === true && wbInfo.roles[id].decide === true);
+  document.querySelectorAll('#wbConflicts [data-conflict-authority]').forEach(btn => {
+    if (btn.getAttribute('aria-busy') === 'true') return;
+    const needsDecide = btn.dataset.conflictAuthority === 'decide';
+    btn.disabled = !hasArbiter || (needsDecide && !hasDecidingArbiter);
+    btn.title = !hasArbiter ? t('wb.needArbiterTip') : (needsDecide && !hasDecidingArbiter ? t('wb.needDecideTip') : '');
+  });
+}
+
+async function postWbConflictRequest(endpoint, body) {
+  let result;
+  try {
+    result = await (await fetch(`/api/workbenches/${wbId}/${endpoint}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })).json();
+  } catch (e) {
+    appendWbError(t('dyn.netErr', { msg: e.message }));
+    return false;
+  }
+  if (result.error) { appendWbError(result.error); return false; }
+  return true;
+}
+
+function scheduleWbConflictRefresh() {
+  if (!wbId || wbConflictRefreshTimer !== null) return;
+  wbConflictRefreshTimer = setTimeout(() => {
+    wbConflictRefreshTimer = null;
+    refreshWbConflicts();
+  }, 0);
+}
+
+async function refreshWbConflicts() {
+  if (!wbId) return;
+  const requestedWbId = wbId;
+  let result;
+  try { result = await (await fetch(`/api/workbenches/${requestedWbId}/conflicts`)).json(); }
+  catch (e) {
+    if (wbId === requestedWbId) appendWbError(t('dyn.netErr', { msg: e.message }));
+    return;
+  }
+  if (wbId !== requestedWbId) return; // 切台后的旧请求不得覆盖当前台
+  if (result.error) { appendWbError(result.error); return; }
+
+  const panel = $('#wbConflicts');
+  const conflicts = Array.isArray(result.conflicts) ? result.conflicts : [];
+  panel.replaceChildren();
+  document.querySelectorAll('#wbChangesList .wb-conflict-badge').forEach(badge => badge.remove());
+  if (!conflicts.length) { panel.hidden = true; return; }
+
+  panel.hidden = false;
+  const title = document.createElement('h4');
+  title.className = 'wb-conflicts-title';
+  title.textContent = t('wb.conflictsTitle');
+  panel.appendChild(title);
+  const conflictBuildIds = new Set();
+
+  for (const conflict of conflicts) {
+    const path = String(conflict.path ?? '');
+    const item = document.createElement('section');
+    item.className = 'wb-conflict-item';
+    const head = document.createElement('div');
+    head.className = 'wb-conflict-head';
+    const warning = document.createElement('span');
+    warning.textContent = '⚠';
+    warning.setAttribute('aria-hidden', 'true');
+    const pathEl = document.createElement('code');
+    pathEl.textContent = path;
+    head.append(warning, pathEl);
+    item.appendChild(head);
+
+    const involves = document.createElement('div');
+    involves.className = 'wb-conflict-involves';
+    const involvesLabel = document.createElement('span');
+    involvesLabel.textContent = t('wb.conflictInvolves');
+    involves.appendChild(involvesLabel);
+    const refs = document.createElement('div');
+    refs.className = 'wb-conflict-refs';
+    for (const build of (Array.isArray(conflict.builds) ? conflict.builds : [])) {
+      const buildId = String(build.buildId ?? '');
+      if (!buildId) continue;
+      conflictBuildIds.add(buildId);
+      const ref = document.createElement('button');
+      ref.type = 'button';
+      ref.className = 'wb-conflict-change';
+      const actorName = build.actorName ?? wbInfo.agentNames?.[build.actorId] ?? build.actorId ?? '';
+      ref.textContent = t('wb.changeNo', { n: changeNoOf(buildId) }) + ' · ' + actorName;
+      ref.onclick = () => {
+        const card = $('#wbChangesList').querySelector(`.wb-change[data-build-id="${CSS.escape(buildId)}"]`);
+        if (!card) return;
+        card.scrollIntoView({ block: 'start' });
+        card.classList.add('wb-change-flash');
+        setTimeout(() => card.classList.remove('wb-change-flash'), 1200);
+      };
+      refs.appendChild(ref);
+    }
+    involves.appendChild(refs);
+    item.appendChild(involves);
+
+    const actions = document.createElement('div');
+    actions.className = 'wb-conflict-actions';
+    const discussBtn = document.createElement('button');
+    discussBtn.type = 'button';
+    discussBtn.className = 'wb-conflict-discuss';
+    discussBtn.dataset.path = path;
+    const discussBusy = wbConflictDiscussTimers.has(path);
+    discussBtn.disabled = discussBusy;
+    discussBtn.textContent = t(discussBusy ? 'wb.discussBusy' : 'wb.discussBtn');
+    if (discussBusy) discussBtn.setAttribute('aria-busy', 'true');
+    discussBtn.onclick = async () => {
+      discussBtn.disabled = true;
+      discussBtn.textContent = t('wb.discussBusy');
+      discussBtn.setAttribute('aria-busy', 'true');
+      const priorTimer = wbConflictDiscussTimers.get(path);
+      if (priorTimer !== undefined) clearTimeout(priorTimer);
+      wbConflictDiscussTimers.set(path, setTimeout(() => clearWbConflictDiscussBusy(path), 5000));
+      const ok = await postWbConflictRequest('conflict-discuss', { path });
+      if (!ok) clearWbConflictDiscussBusy(path);
+    };
+    actions.appendChild(discussBtn);
+
+    for (const action of [
+      { key: 'wb.mergeBtn', decide: false, authority: 'arbiter' },
+      { key: 'wb.decideBtn', decide: true, authority: 'decide' },
+    ]) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.conflictAuthority = action.authority;
+      btn.textContent = t(action.key);
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        await postWbConflictRequest('conflict-merge', { path, decide: action.decide, note: '' });
+        btn.removeAttribute('aria-busy');
+        syncWbConflictAuthority();
+      };
+      actions.appendChild(btn);
+    }
+    item.appendChild(actions);
+    panel.appendChild(item);
+  }
+
+  const hint = document.createElement('p');
+  hint.className = 'wb-conflict-hint';
+  hint.textContent = t('wb.conflictHint');
+  panel.appendChild(hint);
+  syncWbConflictAuthority();
+
+  for (const buildId of conflictBuildIds) {
+    const card = $('#wbChangesList').querySelector(`.wb-change[data-build-id="${CSS.escape(buildId)}"]`);
+    const head = card?.querySelector('.wb-change-head');
+    if (!head) continue;
+    const badge = document.createElement('span');
+    badge.className = 'wb-conflict-badge';
+    badge.textContent = t('wb.conflictBadge');
+    head.appendChild(badge);
+  }
 }
 
 function appendWbMessage(from, name, to, text, ctx, build) {
@@ -324,6 +505,13 @@ function onWbEvent(ev) {
   if (ev.type === 'chat-message') {
     removeLiveBox();
     appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build);
+    if (ev.build) scheduleWbConflictRefresh();
+    const messageText = String(ev.data ?? '');
+    if (messageText.includes('【冲突对比')) {
+      for (const path of [...wbConflictDiscussTimers.keys()]) {
+        if (messageText.includes(`【冲突对比 · ${path}】`)) clearWbConflictDiscussBusy(path);
+      }
+    }
     if (ev.from !== 'user') { wbLastSpeaker = ev.from; updateWbRouteHint(); } // 隐式路由目标随发言实时可见
   }
   if (ev.type === 'participants' && wbInfo) {
@@ -360,6 +548,7 @@ function onWbEvent(ev) {
   if (ev.type === 'build-status') {
     const card = $('#wbChangesList').querySelector(`.build-card[data-build-id="${ev.buildId}"]`);
     if (card?.updateStatus) card.updateStatus(ev.status, ev.files);
+    scheduleWbConflictRefresh();
   }
   if (ev.type === 'state') { setWbBusy(ev.data === 'busy'); if (ev.data === 'idle') removeLiveBox(); }
   if (ev.type === 'agent-status') {
@@ -419,6 +608,8 @@ async function attachWorkbench(id) {
   }
   $('#wbLog').innerHTML = '';
   $('#wbChangesList').innerHTML = '';
+  $('#wbConflicts').replaceChildren();
+  $('#wbConflicts').hidden = true;
   for (const k of Object.keys(wbChangeNo)) delete wbChangeNo[k]; // 变更序号按台重置
   wbInfo = info;
   wbLastSpeaker = null;
@@ -428,6 +619,7 @@ async function attachWorkbench(id) {
   wbEs.onmessage = e => onWbEvent(JSON.parse(e.data));
   wbEs.onerror = () => appendWbError(t('dyn.streamBroken'));
   await refreshSessionList();
+  await refreshWbConflicts();
 }
 
 // ===== 收件人区：勾选框 + 每人 ✕ 移出 + 「＋」中途加人 + 隐式路由提示 =====
@@ -499,6 +691,7 @@ function renderWbActionPanel() {
   // 挂了工作区就显示右栏（历史变更卡也要有家）；没有可写成员时只隐藏指派区
   panel.hidden = !wbInfo.workspace;
   $('#wbAssign').hidden = !capable.length;
+  syncWbConflictAuthority();
   if (panel.hidden || !capable.length) return;
   renderWbRoleRows();
   const sel = $('#wbActor');
