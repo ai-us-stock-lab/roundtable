@@ -283,13 +283,12 @@ function onEvent(ev) {
   if (ev.type === 'judge-card') {
     $('#judgecard').hidden = false;
     $('#judgecard pre').textContent = ev.data;
-    $('#flowback').hidden = !sessionOrigin; // 升格而来的会议：一键回来源
-    if (!sessionOrigin) populateFlowbackTargets(); // 无来源：可投放到任意工作台
+    populateFlowbackTargets(); // 裁决已自动落回来源；投放面向任意工作台再分发
     refreshSessionList();
   }
 }
 
-// 无来源会议的裁决卡投放：列出全部工作台（活动+归档）供选择
+// 裁决卡再分发：列出全部工作台（活动+归档）供选择
 async function populateFlowbackTargets() {
   let list;
   try { list = await (await fetch('/api/sessions')).json(); } catch { return; }
@@ -338,7 +337,7 @@ function resetSessionUI() {
   $('#colA .name').textContent = ''; $('#colB .name').textContent = '';
   $('#summary').textContent = '';
   $('#judgecard').hidden = true; $('#judgecard pre').textContent = '';
-  $('#flowback').hidden = true; sessionOrigin = '';
+  sessionOrigin = '';
   $('#flowbackAnyWrap').hidden = true;
   const statebar = $('#statebar'); statebar.textContent = ''; statebar.hidden = true; statebar.classList.remove('err');
   const setupbar = $('#setupbar'); setupbar.textContent = ''; setupbar.hidden = true; setupbar.classList.remove('err');
@@ -483,7 +482,6 @@ async function doFlowback(target) {
   if (r.error) return setStatebar(r.error, true);
   await attachWorkbench(r.benchId); // 裁决卡已贴回，切到工作台接着聊
 }
-$('#flowback').onclick = () => doFlowback();
 $('#flowbackGo').onclick = async () => {
   const v = $('#flowbackTarget').value;
   if (!v) return setStatebar(t('dyn.flowbackPickFirst'), true); // 没选目标必须有提示，不能静默

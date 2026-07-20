@@ -47,12 +47,10 @@ const I18N = {
   'arena.resummarize': { zh: '重新生成本轮摘要', en: "Regenerate this round's summary" },
   'arena.verdict': { zh: '裁决卡', en: 'Verdict card' },
   'arena.copy': { zh: '复制', en: 'Copy' },
-  'arena.flowback': { zh: '回流到来源工作台', en: 'Send back to workbench' },
-  'arena.flowbackTitle': { zh: '把裁决卡作为一条消息贴回升格前的工作台，接着聊', en: 'Post the verdict card back to the workbench it was promoted from' },
   'arena.flowbackGo': { zh: '投放', en: 'Send' },
   'dyn.flowbackPickFirst': { zh: '请先在下拉框选择目标工作台，再点「投放」', en: 'Pick a target workbench in the dropdown first, then hit Send' },
   'dyn.flowbackBusy': { zh: '投放中……（归档工作台需先恢复，稍等一两秒）', en: 'Sending… (an archived workbench is being restored first)' },
-  'arena.flowbackPick': { zh: '投放裁决卡到工作台…', en: 'Send verdict to a workbench…' },
+  'arena.flowbackPick': { zh: '投放/转发裁决卡到工作台…', en: 'Redistribute verdict to a workbench…' },
   'arena.groupChat': { zh: '场边追问', en: 'Sideline Q&A' },
   'arena.groupChatToggle': { zh: '展开/收起场边追问', en: 'Toggle sideline Q&A' },
   'arena.groupChatHint': { zh: '轮间/会后基于本场上下文向参会 AI 追问（不打断辩论）', en: 'Ask participants between rounds, grounded in this meeting (never interrupts the debate)' },
@@ -226,6 +224,11 @@ const I18N = {
   'wb.needDecideTip': { zh: '该仲裁未勾「替我决断」', en: 'This arbiter does not have "Decide for me" enabled' },
   'wb.conflictBadge': { zh: '⚠ 冲突', en: '⚠ Conflict' },
   'wb.conflictHint': { zh: '重叠的变更不会被拦截或默判——看对比、做决定，或交给仲裁融合；最终应用仍需你逐文件批准', en: 'Overlapping changes are neither blocked nor decided silently. Review the comparison, decide, or ask the arbiter to merge; you still approve each file before it is applied.' },
+  'wb.meetingStarted': { zh: '会议已开始', en: 'Meeting started' },
+  'wb.meetingVerdict': { zh: '会议裁决', en: 'Meeting verdict' },
+  'wb.meetingVerdictExpand': { zh: '展开裁决卡', en: 'Expand verdict card' },
+  'wb.openMeeting': { zh: '打开会场', en: 'Open meeting' },
+  'wb.meetingGone': { zh: '找不到该会议(可能已删除)', en: 'Meeting not found (it may have been deleted)' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');

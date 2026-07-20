@@ -332,8 +332,55 @@ async function refreshWbConflicts() {
   }
 }
 
-function appendWbMessage(from, name, to, text, ctx, build) {
+function appendWbMessage(from, name, to, text, ctx, build, meeting) {
   const el = wbTyping[from]; if (el) { el.remove(); delete wbTyping[from]; }
+  if (meeting) {
+    const card = document.createElement('div');
+    card.className = 'wb-meeting-card';
+    card.dataset.kind = meeting.kind;
+
+    const title = document.createElement('div');
+    title.className = 'wb-meeting-title';
+    title.textContent = '⚖ ' + t(meeting.kind === 'verdict' ? 'wb.meetingVerdict' : 'wb.meetingStarted');
+
+    const topic = document.createElement('div');
+    topic.className = 'wb-meeting-topic';
+    topic.textContent = meeting.topic ?? '';
+
+    card.appendChild(title);
+    card.appendChild(topic);
+
+    if (meeting.kind === 'verdict') {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = t('wb.meetingVerdictExpand');
+      const verdict = document.createElement('pre');
+      verdict.textContent = text;
+      details.appendChild(summary);
+      details.appendChild(verdict);
+      card.appendChild(details);
+    }
+
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'wb-meeting-open';
+    openBtn.textContent = t('wb.openMeeting');
+    openBtn.onclick = async () => {
+      openBtn.disabled = true;
+      openBtn.setAttribute('aria-busy', 'true');
+      try { await openMeetingByDirname(meeting.dir); }
+      finally {
+        openBtn.disabled = false;
+        openBtn.removeAttribute('aria-busy');
+      }
+    };
+    card.appendChild(openBtn);
+
+    $('#wbLog').appendChild(card);
+    $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+    return;
+  }
+
   const div = document.createElement('div');
   div.className = 'chat-msg ' + (from === 'user' ? 'chat-user' : 'chat-agent');
   const nameEl = document.createElement('div');
@@ -354,6 +401,21 @@ function appendWbMessage(from, name, to, text, ctx, build) {
   if (build) { upsertChangeCard(build); appendChangeRef(build.buildId, build.stat); }
   $('#wbLog').appendChild(div);
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
+}
+
+async function openMeetingByDirname(dirname) {
+  let sessions;
+  try { sessions = await (await fetch('/api/sessions')).json(); }
+  catch { return appendWbError(t('wb.meetingGone')); }
+  if (!Array.isArray(sessions)) return appendWbError(t('wb.meetingGone'));
+
+  const active = sessions.find(s => !s.archived && s.type !== 'workbench' && s.dirname === dirname);
+  if (active) return attach(active.id);
+
+  const archived = sessions.find(s => s.archived && s.id === dirname);
+  if (archived) return resumeSession(dirname);
+
+  appendWbError(t('wb.meetingGone'));
 }
 
 // 与后端 splitPatchByFile 同逻辑：按 diff --git 头切文件段
@@ -504,7 +566,7 @@ function removeLiveBox() { if (wbLiveBox) { wbLiveBox.remove(); wbLiveBox = null
 function onWbEvent(ev) {
   if (ev.type === 'chat-message') {
     removeLiveBox();
-    appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build);
+    appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build, ev.meeting);
     if (ev.build) scheduleWbConflictRefresh();
     const messageText = String(ev.data ?? '');
     if (messageText.includes('【冲突对比')) {
