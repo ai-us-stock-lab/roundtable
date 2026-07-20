@@ -3,6 +3,8 @@
 // ---- 工作台模块内部状态 ----
 const wbTyping = {};      // agentId -> "正在输入…" 元素
 let wbLiveBox = null;     // 动手实时输出盒（完成后移除，正式消息+diff 卡随 chat-message 到来）
+// wbInfo 声明在 app-core.js（跨模块共享）；这里只读写
+let wbLastSpeaker = null; // 隐式路由目标（前端镜像：跟随 chat-message 事件）
 
 function closeWbEvents() { if (wbEs) { wbEs.close(); wbEs = null; } wbId = null; }
 
@@ -243,7 +245,16 @@ function ensureLiveBox(agentName) {
 function removeLiveBox() { if (wbLiveBox) { wbLiveBox.remove(); wbLiveBox = null; } }
 
 function onWbEvent(ev) {
-  if (ev.type === 'chat-message') { removeLiveBox(); appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build); }
+  if (ev.type === 'chat-message') {
+    removeLiveBox();
+    appendWbMessage(ev.from, ev.name, ev.to, ev.data, ev.ctx, ev.build);
+    if (ev.from !== 'user') { wbLastSpeaker = ev.from; updateWbRouteHint(); } // 隐式路由目标随发言实时可见
+  }
+  if (ev.type === 'participants' && wbInfo) {
+    // 成员变化事件（含重连回放）——与本地一致则跳过，避免与 changeParticipants 的响应刷新互踩
+    const same = ev.data.length === wbInfo.participants.length && ev.data.every(p => wbInfo.participants.includes(p));
+    if (!same) { wbInfo.participants = ev.data; renderWbRecipients(); }
+  }
   if (ev.type === 'build-progress') {
     const pre = ensureLiveBox(cfg.agents[ev.agentId]?.name ?? ev.agentId);
     pre.appendChild(document.createTextNode(ev.data));
@@ -333,6 +344,19 @@ async function attachWorkbench(id) {
   // 动手按钮：挂了工作区且有可写模型才出现
   $('#wbBuild').hidden = !(info.workspace && (info.writeCapable ?? []).length);
   $('#wbLog').innerHTML = '';
+  wbInfo = info;
+  wbLastSpeaker = null;
+  renderWbRecipients();
+  showView('#workbench');
+  wbEs = new EventSource(`/api/workbenches/${id}/events`);
+  wbEs.onmessage = e => onWbEvent(JSON.parse(e.data));
+  wbEs.onerror = () => appendWbError(t('dyn.streamBroken'));
+  await refreshSessionList();
+}
+
+// ===== 收件人区：勾选框 + 每人 ✕ 移出 + 「＋」中途加人 + 隐式路由提示 =====
+function renderWbRecipients() {
+  const info = wbInfo;
   const rc = $('#wbRecipients');
   rc.innerHTML = '';
   for (const p of info.participants) {
@@ -340,17 +364,64 @@ async function attachWorkbench(id) {
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = p;
+    cb.onchange = updateWbRouteHint;
     label.appendChild(cb);
     const canBuild = (info.writeCapable ?? []).includes(p) && info.workspace;
     label.appendChild(document.createTextNode(' ' + (info.agentNames[p] ?? p) + (canBuild ? t('dyn.canBuild') : '')));
     if (canBuild) label.title = t('dyn.canBuildTitle');
+    if (info.participants.length > 1) {
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'wb-remove';
+      x.textContent = '✕';
+      x.title = t('wb.removeTitle');
+      x.onclick = e => { e.preventDefault(); changeParticipants('remove', p); };
+      label.appendChild(x);
+    }
     rc.appendChild(label);
   }
-  showView('#workbench');
-  wbEs = new EventSource(`/api/workbenches/${id}/events`);
-  wbEs.onmessage = e => onWbEvent(JSON.parse(e.data));
-  wbEs.onerror = () => appendWbError(t('dyn.streamBroken'));
-  await refreshSessionList();
+  // 「＋」加人：候选 = 全局配置里可用且未在场的引擎
+  const candidates = Object.entries(cfg.agents).filter(([id, a]) => !a.unavailable && !info.participants.includes(id));
+  if (candidates.length) {
+    const sel = document.createElement('select');
+    sel.className = 'wb-add';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = t('wb.addAgent');
+    sel.appendChild(ph);
+    for (const [id, a] of candidates) {
+      const o = document.createElement('option');
+      o.value = id;
+      o.textContent = a.name;
+      sel.appendChild(o);
+    }
+    sel.onchange = () => { if (sel.value) changeParticipants('add', sel.value); };
+    rc.appendChild(sel);
+  }
+  const hint = document.createElement('span');
+  hint.id = 'wbRouteHint';
+  hint.className = 'wb-route-hint';
+  rc.appendChild(hint);
+  updateWbRouteHint();
+}
+
+function updateWbRouteHint() {
+  const hint = $('#wbRouteHint');
+  if (!hint || !wbInfo) return;
+  const anyChecked = [...$('#wbRecipients').querySelectorAll('input:checked')].length > 0;
+  if (anyChecked) { hint.textContent = ''; return; }
+  const target = wbInfo.participants.includes(wbLastSpeaker) ? wbLastSpeaker : wbInfo.participants[0];
+  hint.textContent = t('wb.routeHint', { name: wbInfo.agentNames[target] ?? target });
+}
+
+async function changeParticipants(op, agentId) {
+  let r;
+  try { r = await (await fetch(`/api/workbenches/${wbId}/participants`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ op, agentId }) })).json(); }
+  catch (e) { return appendWbError(t('dyn.netErr', { msg: e.message })); }
+  if (r.error) return appendWbError(r.error);
+  Object.assign(wbInfo, r); // participants/agentNames/writeCapable 局部刷新
+  $('#wbBuild').hidden = !(wbInfo.workspace && (wbInfo.writeCapable ?? []).length);
+  renderWbRecipients();
 }
 
 async function resumeWorkbench(dirname) {

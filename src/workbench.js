@@ -493,6 +493,32 @@ export class Workbench {
     this.emit({ type: 'sys', data: this.tr(`已丢弃 ${targets.length} 个文件的改动（patch 保留在会话目录可手工找回）`, `Discarded changes to ${targets.length} file(s) (the patch stays in the session dir for manual recovery)`) });
   }
 
+  // ---- 中途增删参与者：新成员靠提示词重建即可看到全部历史，无需补课 ----
+  async addParticipant(id, agentCfg, writeCfg) {
+    if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
+    if (this.participants.includes(id)) throw new Error(this.tr('该模型已在参与者中', 'This model is already a participant'));
+    this.agents[id] = agentCfg;
+    if (writeCfg) this.writeAgents[id] = writeCfg;
+    this.participants.push(id);
+    this.emit({ type: 'participants', data: this.participants });
+    this.emit({ type: 'sys', data: this.tr(`${this.nameOf(id)} 加入讨论`, `${this.nameOf(id)} joined the discussion`) });
+    await this.saveMeta();
+  }
+
+  async removeParticipant(id) {
+    if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
+    if (!this.participants.includes(id)) throw new Error(this.tr('该模型不在参与者中', 'This model is not a participant'));
+    if (this.participants.length <= 1) throw new Error(this.tr('至少保留一个参与者', 'At least one participant must remain'));
+    const name = this.nameOf(id);
+    this.participants = this.participants.filter(p => p !== id);
+    delete this.writeAgents[id];
+    delete this.buildSessions[id]; // 其 CLI 原生会话上下文随成员移除作废，重加后从全量上下文起步
+    if (this.lastSpeaker === id) this.lastSpeaker = null; // 隐式路由回退到 participants[0]
+    this.emit({ type: 'participants', data: this.participants });
+    this.emit({ type: 'sys', data: this.tr(`${name} 已移出讨论（可随时再加回）`, `${name} left the discussion (can be re-added anytime)`) });
+    await this.saveMeta();
+  }
+
   // 静默注入一条用户侧消息（落盘+广播，不触发任何模型调用）——裁决卡回流等场景用
   async note(text) {
     const uname = userLabel(this.lang);

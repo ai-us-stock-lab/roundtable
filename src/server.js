@@ -500,6 +500,26 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return json(res, 200, { ok: true });
         }
         if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }
+        if (action === 'participants') {
+          // 中途增删参与者：add 按当前全局配置派生会话/写配置（含工作区只读挂载）
+          const agentId = String(body.agentId ?? '');
+          try {
+            if (body.op === 'add') {
+              if (!agents[agentId]) return json(res, 400, { error: '未知 agent: ' + agentId });
+              if (agents[agentId].unavailable) return json(res, 400, { error: `${agents[agentId].name} 当前不可用: ${agents[agentId].unavailable}` });
+              await b.addParticipant(agentId,
+                deriveSessionAgents(agents, [agentId], b.workspace)[agentId],
+                deriveWriteAgents(agents, [agentId])[agentId]);
+            } else if (body.op === 'remove') {
+              await b.removeParticipant(agentId);
+            } else return json(res, 400, { error: '未知操作: ' + String(body.op) });
+          } catch (e) { return json(res, 400, { error: String(e.message ?? e) }); }
+          return json(res, 200, {
+            participants: b.participants,
+            agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
+            writeCapable: Object.keys(b.writeAgents),
+          });
+        }
         if (action === 'rename') {
           const name = String(body.name ?? '').trim();
           if (!name) return json(res, 400, { error: '名字不能为空' });

@@ -213,6 +213,23 @@ test('relay: en 会话用英文收敛标记，同样提前终止', async () => {
   } finally { delete process.env.MOCK_FIXED_OUTPUT; }
 });
 
+test('中途增删参与者：移除清 buildSessions 与 lastSpeaker，至少留一人，可再加回', async () => {
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-part-'));
+  const agents = MOCK_AGENTS();
+  const w = new Workbench({ name: 'p', agents, participants: ['m1', 'm2'], baseDir, emit: () => {} });
+  await w.init();
+  w.lastSpeaker = 'm2';
+  w.buildSessions.m2 = { sessionId: 'x', lastSeq: 1 };
+  await w.removeParticipant('m2');
+  assert.deepEqual(w.participants, ['m1']);
+  assert.equal(w.lastSpeaker, null);           // 隐式路由回退
+  assert.equal(w.buildSessions.m2, undefined); // CLI 会话续接缓存作废
+  await assert.rejects(() => w.removeParticipant('m1'), /至少保留一个参与者/);
+  await assert.rejects(() => w.addParticipant('m1', agents.m1), /已在参与者中/);
+  await w.addParticipant('m2', agents.m2);
+  assert.deepEqual(w.participants, ['m1', 'm2']);
+});
+
 test('relay: 少于两个模型拒绝；busy 时拒绝', async () => {
   const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-guard-'));
   const w = new Workbench({ name: 'g', agents: MOCK_AGENTS(), participants: ['m1'], baseDir, emit: () => {} });
