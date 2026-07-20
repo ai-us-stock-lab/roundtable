@@ -64,7 +64,7 @@ export async function resetWorkDir() {
   if (path.dirname(resolved) !== expectedParent || path.basename(resolved) !== '.work') {
     throw new Error(`拒绝清理非预期目录: ${resolved}`);
   }
-  await rm(resolved, { recursive: true, force: true });
+  await rm(resolved, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   await mkdir(resolved, { recursive: true });
 }
 
@@ -74,7 +74,7 @@ export async function removeWorkDir() {
   if (path.dirname(resolved) !== expectedParent || path.basename(resolved) !== '.work') {
     throw new Error(`拒绝清理非预期目录: ${resolved}`);
   }
-  await rm(resolved, { recursive: true, force: true });
+  await rm(resolved, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 
 export function redactLocalPaths(text) {

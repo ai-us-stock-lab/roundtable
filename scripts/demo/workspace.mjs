@@ -54,7 +54,8 @@ export async function createDemoWorkspace(options = {}) {
     const resolved = path.resolve(tempBase);
     const tempRoot = path.resolve(os.tmpdir());
     if (resolved.startsWith(tempRoot + path.sep) && path.basename(resolved).startsWith('roundtable-demo-')) {
-      await rm(resolved, { recursive: true, force: true });
+      // Windows 下刚结束的子进程/杀软扫描可能短暂锁着文件（EBUSY）——重试兜底
+      await rm(resolved, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     }
   };
 

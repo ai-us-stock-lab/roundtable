@@ -43,15 +43,24 @@ async function main() {
     if (report.gif) console.log(`[demo] 完成：${report.gif}`);
     console.log('[demo] 交付前仍须人工完整观看一次，检查配音、节奏和画面中是否含敏感信息。');
   } finally {
-    await workspace?.cleanup();
-    mockServer?.close();
-    realServer?.close();
-    if (succeeded && !options.keepWork) await removeWorkDir();
-    else if (!succeeded) console.error('[demo] 已保留 scripts/demo/.work，便于定位失败步骤。');
+    // 各步独立 try/catch：任何一步失败不能吞掉后面的清理（subst 盘符、临时服务端口都要还回去）。
+    // 先关服务再删演示仓库：进程内服务/其子进程可能还攥着仓库句柄，反序会 EBUSY。
+    try { mockServer?.close(); } catch { /* 已关 */ }
+    try { realServer?.close(); } catch { /* 已关 */ }
+    try { await workspace?.cleanup(); } catch (error) { console.error('[demo] 工作区清理失败：' + error.message); }
+    if (succeeded && !options.keepWork) {
+      try { await removeWorkDir(); } catch (error) { console.error('[demo] .work 清理失败：' + error.message); }
+    } else if (!succeeded) console.error('[demo] 已保留 scripts/demo/.work，便于定位失败步骤。');
   }
 }
 
-main().catch(error => {
-  console.error('[demo] ' + error.message);
-  process.exitCode = 1;
-});
+// 确定性退出：录制链路牵扯 Playwright、undici 连接池、SSE socket、CLI 子进程 stdio 等外部句柄，
+// 任何一个未释放都会让 Node 事件循环悬挂（曾出现生成完毕后进程挂十几分钟直到外层超时）。
+// 走到这里时上面的清理都已 await 完成（workspace 的 subst /d 兜底挂在 process 'exit' 钩子上，同步执行，不受影响）。
+main().then(
+  () => process.exit(process.exitCode ?? 0),
+  error => {
+    console.error('[demo] ' + error.message);
+    process.exit(1);
+  },
+);
