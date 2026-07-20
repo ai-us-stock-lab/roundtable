@@ -501,8 +501,9 @@ function renderWbActionPanel() {
   const sel = $('#wbActor');
   const prev = sel.value;
   sel.innerHTML = '';
-  // 执行者候选 = 有写能力 且 角色为提案者/仲裁者（讨论者只动嘴）
-  const eligible = capable.filter(id => (wbInfo.roles?.[id]?.role ?? 'propose') !== 'talk');
+  // 执行者候选 = 全部有写能力者。角色管 agent 的「自主」行为（将来聊天中能否主动出 diff）；
+  // 用户的显式指派是用户主权，不被角色拦——讨论者也可以被点名干活
+  const eligible = capable;
   for (const id of eligible) {
     const o = document.createElement('option');
     o.value = id;

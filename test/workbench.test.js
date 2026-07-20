@@ -220,10 +220,11 @@ test('角色叠加制：能力×仲裁四组合、讨论者拦指派、能力上
   await w.init();
   assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: false, decide: false }); // 有写能力默认提案者
   assert.deepEqual(w.roleOf('m2'), { role: 'talk', arbiter: false, decide: false });    // 无写能力恒纯讨论者
-  // 纯裁判：讨论者 + 仲裁 —— 不能被指派提案，但可执行融合
+  // 纯裁判：讨论者 + 仲裁 —— 自主提案位为 false（将来聊天产 diff 的门禁），
+  // 但用户显式指派不受角色拦（build 不因角色拒绝；此处工作区非 git 仓库，报的是 git 仓库错误而非角色错误）
   await w.setRole('m1', 'talk', true);
   assert.deepEqual(w.permOf('m1'), { propose: false, apply: true, decide: false });
-  await assert.rejects(() => w.build('改点东西', 'm1'), /讨论者|discussant/);
+  await assert.rejects(() => w.build('改点东西', 'm1'), /git 仓库|git repo/);
   // 提案者 + 仲裁 + 决断档（两 agent 小场子配置）
   await w.setRole('m1', 'propose', true, true);
   assert.deepEqual(w.roleOf('m1'), { role: 'propose', arbiter: true, decide: true });

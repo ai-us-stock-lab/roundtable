@@ -108,7 +108,7 @@ const I18N = {
   'wb.decideTip': { zh: '冲突时授权它直接选边并融合（默认只整理 pro/con 交你拍板）；最终应用进工作区仍需你批准', en: 'On conflict, let it pick a side and merge directly (default: it only prepares pro/con for your call); applying to your workspace still needs your approval' },
   'wb.noEligibleActor': { zh: '（无可执行者——先在上方把某位的角色改为提案者/仲裁者）', en: '(no eligible executor — set someone\'s role to Proposer/Arbiter above)' },
   'wb.helpTitle': { zh: '❓ 角色说明', en: '❓ Role guide' },
-  'wb.helpTalk': { zh: '讨论者：只动嘴——参与全部讨论与评审，永不碰你的文件。', en: 'Discussant: talk only — joins every discussion and review, never touches your files.' },
+  'wb.helpTalk': { zh: '讨论者：不自主产出变更——只讨论与评审。角色管的是 agent 的自主行为；你在下方显式指派任何有写能力的引擎（含讨论者）都可以。', en: 'Discussant: never produces changes on its own — discussion and review only. Roles govern autonomous behavior; you can still explicitly assign any write-capable engine (discussants included) below.' },
   'wb.helpPropose': { zh: '提案者：讨论者 + 可被指派修改——在项目的隔离副本里真实改文件，产出变更（diff）；每个文件落进你的工作区前都需你批准。', en: 'Proposer: discussant + can be assigned changes — edits real files in an isolated copy, producing a diff; every file needs your approval before it lands in your workspace.' },
   'wb.helpArbiter': { zh: '仲裁：叠加职责，可配在讨论者或提案者身上——多个变更打架时整理各方 pro/con 供你拍板，你选定后由它执行融合。「讨论者+仲裁」即不提自己方案的纯裁判。', en: 'Arbiter: a stackable duty on either capability — when changes clash, it digests each side\'s pros/cons for your call, then executes the merge you pick. Discussant+Arbiter = a pure judge with no proposals of its own.' },
   'wb.helpDecide': { zh: '「替我决断」：授权仲裁者在冲突时直接选边并融合（过程留痕）。无论哪档，应用进工作区的批准权永远在你。', en: '"Decide for me": lets the arbiter pick a side and merge directly on conflict (fully logged). Either way, applying to your workspace always needs your approval.' },

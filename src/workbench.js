@@ -337,7 +337,8 @@ export class Workbench {
     if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
     const wcfg = this.writeAgents[agentId];
     if (!wcfg) throw new Error(this.tr('该模型不支持动手（无安全写模式）', 'This model cannot build (no safe write mode)'));
-    if (!this.permOf(agentId).propose) throw new Error(this.tr('该模型是讨论者角色，不能产出变更——先在「变更」栏把它改为提案者/仲裁者', 'This model is a discussant — change its role to proposer/arbiter in the Changes pane first'));
+    // 不按角色拦：用户显式指派是用户主权，讨论者也可被点名干活；
+    // 角色（permOf().propose）留给将来「聊天中自主产出 diff」的门禁
     if (!this.workspace) throw new Error(this.tr('该工作台未挂载项目目录——动手需要在建台时填写项目目录', 'No project directory mounted — building requires one set at workbench creation'));
     if (!(await isGitRepo(this.workspace))) throw new Error(this.tr('项目目录不是 git 仓库——动手依赖 git worktree 隔离副本', 'The project directory is not a git repo — building relies on a git worktree isolated copy'));
     this.state = 'busy';
