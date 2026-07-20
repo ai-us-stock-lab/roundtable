@@ -16,6 +16,7 @@ const I18N = {
   'status.checkAll': { zh: '检查全部', en: 'Check all' },
   'status.unknownTip': { zh: '未检查——点击做一次真实调用检查登录态（消耗一次额度）', en: 'Not checked — click to run one real health call (uses one request)' },
   'status.okTip': { zh: '就绪（{s}s）——点击重新检查', en: 'Ready ({s}s) — click to re-check' },
+  'status.stale': { zh: '服务进程是旧版本（无此接口）——重启服务（npm start）后再检查', en: 'Server process is an older build (endpoint missing) — restart it (npm start), then re-check' },
 
   // ---- 建会议页 ----
   'setup.title': { zh: '发起一场会议', en: 'Start a meeting' },

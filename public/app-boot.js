@@ -83,8 +83,12 @@ async function smokeAgent(id) {
   document.querySelectorAll(`.as-chip[data-agent="${CSS.escape(id)}"] .as-dot`)
     .forEach(d => { d.className = 'as-dot as-checking'; });
   let r;
-  try { r = await (await fetch(`/api/agents/${encodeURIComponent(id)}/smoke`, { method: 'POST' })).json(); }
-  catch (e) { r = { ok: false, error: e.message }; }
+  try {
+    const resp = await fetch(`/api/agents/${encodeURIComponent(id)}/smoke`, { method: 'POST' });
+    // 404 = 正在运行的服务还没有这个接口（前端文件是现读的、服务进程是旧的）——
+    // 这是「服务需重启」，不是引擎故障，别亮误导性的红灯
+    r = resp.status === 404 ? { ok: false, error: t('status.stale') } : await resp.json();
+  } catch (e) { r = { ok: false, error: e.message }; }
   if (r.error && r.ok === undefined) r = { ok: false, error: r.error }; // 409 等错误响应归一
   cfg.agents[id].smoke = r;
   renderAgentStatus();
