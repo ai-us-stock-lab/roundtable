@@ -413,7 +413,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           name: String(meta.topic ?? '').replace(/^\[工作台\] /, ''), agents: deriveSessionAgents(agents, participants, wbWorkspace),
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev), dir, messages,
           workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants), builds,
-          buildSessions: meta.buildSessions ?? {}, lang: meta.lang === 'en' ? 'en' : 'zh',
+          buildSessions: meta.buildSessions ?? {}, lang: meta.lang === 'en' ? 'en' : 'zh', perms: meta.perms ?? {},
         });
         entry.bench = bench;
         // 合成事件回放：重建聊天记录（含动手 diff 卡片——patch 从会话目录读回）
@@ -470,6 +470,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             name: b.name, state: b.state, participants: b.participants,
             agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
             workspace: b.workspace, writeCapable: Object.keys(b.writeAgents),
+            perms: Object.fromEntries(b.participants.map(id => [id, b.permOf(id)])),
           });
         if (!action && req.method === 'DELETE') {
           for (const client of entry.clients) { try { client.end(); } catch { /* 已断开 */ } }
@@ -532,7 +533,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
             participants: b.participants,
             agentNames: Object.fromEntries(b.participants.map(id => [id, b.nameOf(id)])),
             writeCapable: Object.keys(b.writeAgents),
+            perms: Object.fromEntries(b.participants.map(id => [id, b.permOf(id)])),
           });
+        }
+        if (action === 'perms') {
+          // 每参与者两级权限：propose 立即生效（动手执行者资格）；apply 存储待定稿功能读取
+          try { await b.setPerm(String(body.agentId ?? ''), String(body.perm ?? ''), !!body.value); }
+          catch (e) { return json(res, 400, { error: String(e.message ?? e) }); }
+          return json(res, 200, { perms: Object.fromEntries(b.participants.map(id => [id, b.permOf(id)])) });
         }
         if (action === 'rename') {
           const name = String(body.name ?? '').trim();

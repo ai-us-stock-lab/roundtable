@@ -213,6 +213,21 @@ test('relay: en 会话用英文收敛标记，同样提前终止', async () => {
   } finally { delete process.env.MOCK_FIXED_OUTPUT; }
 });
 
+test('两级权限：propose 默认随写能力开、可关且拦动手；apply 默认关；无写能力恒 false', async () => {
+  const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-perm-'));
+  const agents = MOCK_AGENTS();
+  const w = new Workbench({ name: 'pp', agents, participants: ['m1', 'm2'], baseDir, emit: () => {}, workspace: baseDir, writeAgents: { m1: agents.m1 } });
+  await w.init();
+  assert.deepEqual(w.permOf('m1'), { propose: true, apply: false }); // 写能力默认可提案、不可定稿
+  assert.deepEqual(w.permOf('m2'), { propose: false, apply: false }); // 无写能力恒 false
+  await w.setPerm('m1', 'propose', false);
+  assert.equal(w.permOf('m1').propose, false);
+  await assert.rejects(() => w.build('改点东西', 'm1'), /提案\/动手/); // 权限关闭 → 动手被拦
+  await assert.rejects(() => w.setPerm('m2', 'propose', true), /无安全写模式/); // 能力是上限
+  await w.setPerm('m1', 'apply', true);
+  assert.equal(w.permOf('m1').apply, true); // 定稿位可存储（随定稿功能生效）
+});
+
 test('中途增删参与者：移除清 buildSessions 与 lastSpeaker，至少留一人，可再加回', async () => {
   const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-part-'));
   const agents = MOCK_AGENTS();

@@ -416,24 +416,71 @@ function updateWbRouteHint() {
   renderWbActionPanel(); // 成员/能力变化同步动手面板
 }
 
-// 动手面板：独立 section——执行者显式指定（下拉），任务专用输入框，不再挪用聊天框/收件人勾选
+// 动手面板：独立 section——权限行（两级权限）+ 执行者显式指定 + 任务专用输入框
 function renderWbActionPanel() {
   const panel = $('#wbActionPanel');
   if (!wbInfo) { panel.hidden = true; return; }
   const capable = wbInfo.participants.filter(id => (wbInfo.writeCapable ?? []).includes(id));
   panel.hidden = !(wbInfo.workspace && capable.length);
   if (panel.hidden) return;
+  renderWbPermRows();
   const sel = $('#wbActor');
   const prev = sel.value;
   sel.innerHTML = '';
-  for (const id of capable) {
+  // 执行者候选 = 有写能力 且 提案/动手权限开启
+  const eligible = capable.filter(id => wbInfo.perms?.[id]?.propose !== false);
+  for (const id of eligible) {
     const o = document.createElement('option');
     o.value = id;
     o.textContent = wbInfo.agentNames[id] ?? id;
     sel.appendChild(o);
   }
-  if (capable.includes(prev)) sel.value = prev; // 成员变动后尽量保住已选执行者
+  if (!eligible.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = t('wb.noEligibleActor');
+    sel.appendChild(o);
+  }
+  if (eligible.includes(prev)) sel.value = prev; // 成员/权限变动后尽量保住已选执行者
+  $('#wbBuild').disabled = !eligible.length;
   syncWbBuildLabel();
+}
+
+// 权限行：每参与者两个独立权限位（设计定稿 1.5）。propose 立即生效；apply 存储、随定稿功能激活
+function renderWbPermRows() {
+  const box = $('#wbPermRows');
+  box.innerHTML = '';
+  for (const id of wbInfo.participants) {
+    const capable = (wbInfo.writeCapable ?? []).includes(id);
+    const p = wbInfo.perms?.[id] ?? { propose: capable, apply: false };
+    const row = document.createElement('div');
+    row.className = 'wb-perm-row';
+    const name = document.createElement('span');
+    name.className = 'wb-perm-name';
+    name.textContent = wbInfo.agentNames[id] ?? id;
+    row.appendChild(name);
+    for (const [perm, labelKey, titleKey] of [['propose', 'wb.permPropose', 'wb.permProposeTip'], ['apply', 'wb.permApply', 'wb.permApplyTip']]) {
+      const label = document.createElement('label');
+      label.className = 'wb-perm';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!p[perm];
+      cb.disabled = !capable;
+      cb.onchange = () => setWbPerm(id, perm, cb.checked);
+      label.append(cb, ' ' + t(labelKey));
+      label.title = capable ? t(titleKey) : t('wb.permNoCapability');
+      row.appendChild(label);
+    }
+    box.appendChild(row);
+  }
+}
+
+async function setWbPerm(agentId, perm, value) {
+  let r;
+  try { r = await (await fetch(`/api/workbenches/${wbId}/perms`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId, perm, value }) })).json(); }
+  catch (e) { r = { error: e.message }; }
+  if (r.error) { appendWbError(r.error); } else { wbInfo.perms = r.perms; }
+  renderWbActionPanel();
 }
 
 function syncWbBuildLabel() {

@@ -128,8 +128,11 @@ export function splitPatchByFile(patch) {
 
 // ---- 工作台：多模型群聊会话（与 Committee 平行的顶层会话类型，零共享状态） ----
 export class Workbench {
-  constructor({ name, agents, participants, baseDir, emit, workspace = '', writeAgents = {}, lang = 'zh' }) {
+  constructor({ name, agents, participants, baseDir, emit, workspace = '', writeAgents = {}, lang = 'zh', perms = {} }) {
     Object.assign(this, { name, agents, participants, baseDir, workspace, writeAgents, lang });
+    // 每参与者两级权限（设计定稿 1.5）：propose=可动手/出 diff 提案（默认随写能力开，可关）；
+    // apply=可执行定稿/融合（默认关，随定稿功能生效）。均以写能力为上限。
+    this.perms = perms;
     this.emit = emit ?? (() => {});
     this.messages = []; // {seq, from:'user'|agentId, name, to?, toNames?, text, ts, ctx?, build?}
     this.builds = []; // {buildId, agentId, instruction, stat, status: pending|applied|discarded, ts}
@@ -139,8 +142,8 @@ export class Workbench {
     this.lastSpeaker = null; // 最近一次发言的模型 id（默认路由目标）
   }
 
-  static async resume({ name, agents, participants, baseDir, emit, dir, messages, workspace = '', writeAgents = {}, builds = [], buildSessions = {}, lang = 'zh' }) {
-    const w = new Workbench({ name, agents, participants, baseDir, emit, workspace, writeAgents, lang });
+  static async resume({ name, agents, participants, baseDir, emit, dir, messages, workspace = '', writeAgents = {}, builds = [], buildSessions = {}, lang = 'zh', perms = {} }) {
+    const w = new Workbench({ name, agents, participants, baseDir, emit, workspace, writeAgents, lang, perms });
     w.dir = dir;
     w.messages = messages;
     w.builds = builds;
@@ -158,9 +161,24 @@ export class Workbench {
     await saveMetadata(this.dir, {
       type: 'workbench', topic: '[工作台] ' + (this.name || this.tr('未命名', 'unnamed')), // 前缀是规范内部标记（resume/侧栏 strip 依赖），不本地化
       participants: this.participants, status: this.state === 'busy' ? 'busy' : 'idle',
-      workspace: this.workspace, buildSessions: this.buildSessions, lang: this.lang,
+      workspace: this.workspace, buildSessions: this.buildSessions, lang: this.lang, perms: this.perms,
       rounds: this.messages.length, updatedAt: new Date().toISOString(),
     });
+  }
+
+  // 有效权限（含默认值与能力上限）：写能力是硬上限，无 writeArgs 的引擎两位恒为 false
+  permOf(id) {
+    const capable = !!this.writeAgents[id];
+    const p = this.perms[id] ?? {};
+    return { propose: capable && (p.propose ?? true), apply: capable && (p.apply ?? false) };
+  }
+
+  async setPerm(agentId, perm, value) {
+    if (!this.participants.includes(agentId)) throw new Error(this.tr('该模型不在参与者中', 'This model is not a participant'));
+    if (!['propose', 'apply'].includes(perm)) throw new Error('unknown perm: ' + perm);
+    if (!this.writeAgents[agentId] && value) throw new Error(this.tr('该模型无安全写模式，无法授予此权限', 'This model has no safe write mode — cannot grant this permission'));
+    this.perms[agentId] = { ...this.perms[agentId], [perm]: !!value };
+    await this.saveMeta();
   }
 
   async #saveBuilds() {
@@ -305,6 +323,7 @@ export class Workbench {
     if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
     const wcfg = this.writeAgents[agentId];
     if (!wcfg) throw new Error(this.tr('该模型不支持动手（无安全写模式）', 'This model cannot build (no safe write mode)'));
+    if (!this.permOf(agentId).propose) throw new Error(this.tr('该模型的「提案/动手」权限已被关闭', 'This model\'s propose/build permission is switched off'));
     if (!this.workspace) throw new Error(this.tr('该工作台未挂载项目目录——动手需要在建台时填写项目目录', 'No project directory mounted — building requires one set at workbench creation'));
     if (!(await isGitRepo(this.workspace))) throw new Error(this.tr('项目目录不是 git 仓库——动手依赖 git worktree 隔离副本', 'The project directory is not a git repo — building relies on a git worktree isolated copy'));
     this.state = 'busy';
