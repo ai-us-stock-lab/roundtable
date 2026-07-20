@@ -90,6 +90,7 @@ const I18N = {
   'wb.relay': { zh: '让他们讨论', en: 'Let them talk' },
   'wb.relayTitle': { zh: '让模型们就当前讨论互相接力发言，可点名反驳与追问；聊无可聊会自动提前结束', en: 'Have the models relay-respond to each other, pushing back and questioning by name; auto-stops when talked out' },
   'wb.build': { zh: '动手', en: 'Build' },
+  'wb.buildWith': { zh: '动手（{name}）', en: 'Build ({name})' },
   'wb.buildTitle': { zh: '把输入框内容作为任务，交给勾选的那一个模型在隔离副本里真实改文件；产出 diff 由你审批后才落地', en: 'Give the input box to the one checked model as a task; it edits files in an isolated copy, and the diff lands only after you approve' },
   'wb.stop': { zh: '停止', en: 'Stop' },
   'wb.send': { zh: '发送', en: 'Send' },

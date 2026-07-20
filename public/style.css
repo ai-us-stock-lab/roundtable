@@ -295,7 +295,7 @@ details.section[open] > summary { margin-bottom: 4px; }
 #wbSetupBar { padding: 7px 12px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
 #wbSetupBar.err { background: color-mix(in srgb, var(--err) 14%, var(--panel)); color: var(--err); }
 
-#workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: 880px; width: 100%; margin: 0 auto; padding: 0 20px; }
+#workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: 1360px; width: 100%; margin: 0 auto; padding: 0 24px; }
 #wbHead { display: flex; align-items: center; gap: 12px; padding: 14px 0 10px; border-bottom: 1px solid var(--line); }
 #wbHead strong { font-size: 15px; }
 #wbMembers { color: var(--dim); font-size: 12.5px; flex: 1; }

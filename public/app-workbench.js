@@ -409,9 +409,29 @@ function updateWbRouteHint() {
   const hint = $('#wbRouteHint');
   if (!hint || !wbInfo) return;
   const anyChecked = [...$('#wbRecipients').querySelectorAll('input:checked')].length > 0;
-  if (anyChecked) { hint.textContent = ''; return; }
-  const target = wbInfo.participants.includes(wbLastSpeaker) ? wbLastSpeaker : wbInfo.participants[0];
-  hint.textContent = t('wb.routeHint', { name: wbInfo.agentNames[target] ?? target });
+  if (anyChecked) hint.textContent = '';
+  else {
+    const target = wbInfo.participants.includes(wbLastSpeaker) ? wbLastSpeaker : wbInfo.participants[0];
+    hint.textContent = t('wb.routeHint', { name: wbInfo.agentNames[target] ?? target });
+  }
+  updateWbBuildBtn();
+}
+
+// 动手按钮显式指向：勾选恰好一位可动手模型 → 「动手（<名字>）」可点；否则禁用并说明条件
+function updateWbBuildBtn() {
+  const btn = $('#wbBuild');
+  if (!wbInfo || btn.hidden) return;
+  const checked = [...$('#wbRecipients').querySelectorAll('input:checked')].map(cb => cb.value);
+  const capable = checked.filter(id => (wbInfo.writeCapable ?? []).includes(id));
+  if (checked.length === 1 && capable.length === 1) {
+    btn.disabled = false;
+    btn.textContent = t('wb.buildWith', { name: wbInfo.agentNames[capable[0]] ?? capable[0] });
+    btn.title = t('wb.buildTitle');
+  } else {
+    btn.disabled = true;
+    btn.textContent = t('wb.build');
+    btn.title = t('dyn.buildNeedOne');
+  }
 }
 
 async function changeParticipants(op, agentId) {
