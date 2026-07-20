@@ -206,6 +206,13 @@ export class Workbench {
   }
 
   patchPathOf(buildId) { return path.join(this.dir, 'builds', buildId + '.patch'); }
+  // 原始 patch（未脱敏）：仅供 git apply / 副本检查使用。展示与模型上下文一律用脱敏版——
+  // 脱敏会把敏感形态字符串改写为占位符，若拿它去应用会把占位符写进真实文件（数据损坏）
+  rawPatchPathOf(buildId) { return path.join(this.dir, 'builds', buildId + '.patch.raw'); }
+  async #patchForApply(buildId) {
+    try { return await readFile(this.rawPatchPathOf(buildId), 'utf8'); }
+    catch { return await readFile(this.patchPathOf(buildId), 'utf8'); } // 旧记录无 raw：退回脱敏版（历史行为）
+  }
 
   async #persist(m) {
     await appendFile(path.join(this.dir, 'messages.jsonl'), redact(JSON.stringify(m)) + '\n', 'utf8');
@@ -431,7 +438,8 @@ export class Workbench {
         return;
       }
       await mkdir(path.join(this.dir, 'builds'), { recursive: true });
-      await writeFile(this.patchPathOf(buildId), redact(patch), 'utf8');
+      await writeFile(this.patchPathOf(buildId), redact(patch), 'utf8');      // 展示/上下文用
+      await writeFile(this.rawPatchPathOf(buildId), patch, 'utf8');           // 应用/检查用（原始字节）
       const files = splitPatchByFile(patch).map(f => ({ path: f.path, status: 'pending' }));
       const record = { buildId, agentId, instruction: instruction.slice(0, 200), stat, status: 'pending', files, ts: new Date().toISOString() };
       this.builds.push(record);
@@ -472,7 +480,7 @@ export class Workbench {
     const b = this.#buildRecordOf(buildId);
     const targets = b.files.filter(f => f.status === 'pending' && (!filePaths || filePaths.includes(f.path)));
     if (!targets.length) throw new Error(this.tr('没有可应用的文件（已应用或已丢弃）', 'No files left to apply (already applied or discarded)'));
-    const patch = await readFile(this.patchPathOf(buildId), 'utf8');
+    const patch = await this.#patchForApply(buildId); // 应用必须用原始 patch，脱敏版会把占位符写进文件
     const segs = splitPatchByFile(patch);
     const sub = b.files.length === 1 && b.files[0].path === '(全部)'
       ? patch
@@ -502,7 +510,7 @@ export class Workbench {
     try {
       wt = await createWorktree(this.workspace);
       try { await syncWorktreeWithMain(this.workspace, wt); } catch { /* 干净 HEAD 兜底 */ }
-      const patch = await readFile(this.patchPathOf(buildId), 'utf8');
+      const patch = await this.#patchForApply(buildId); // 同 applyBuild：检查副本也要装原始改动
       const segs = splitPatchByFile(patch);
       const sub = b.files.length === 1 && b.files[0].path === '(全部)'
         ? patch
