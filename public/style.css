@@ -424,7 +424,7 @@ details.section[open] > summary { margin-bottom: 4px; }
   margin: 0; padding: 8px 10px; font: 12px/1.55 Consolas, monospace;
   white-space: pre-wrap; word-break: break-all;
 }
-#wbBuild { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); font-weight: 600; }
+/* 旧「动手」幽灵按钮样式已随指派按钮改为 .primary 而移除——ID 选择器曾压过 .primary 造成蓝底蓝字 */
 
 /* ============ 归档只读视图 ============ */
 #archiveView { max-width: 880px; margin: 0 auto; padding: 20px; width: 100%; }
