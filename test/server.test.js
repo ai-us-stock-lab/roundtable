@@ -17,10 +17,15 @@ const srv = await startServer({
 const BASE = `http://127.0.0.1:${srv.port}`;
 after(() => srv.close());
 
-test('GET /api/config 返回 agents 与 templates 且不泄漏 command', async () => {
+test('GET /api/config 返回 agents/bin 与 templates，且不泄漏 command/envWhitelist', async () => {
   const r = await (await fetch(BASE + '/api/config')).json();
   assert.ok(r.agents.mockA);
-  assert.equal(r.agents.mockA.command, undefined);
+  for (const agent of Object.values(r.agents)) {
+    assert.equal(typeof agent.bin, 'string');
+    assert.ok(agent.bin);
+    assert.equal(agent.command, undefined);
+    assert.equal(agent.envWhitelist, undefined);
+  }
   assert.ok(r.templates.general);
   assert.ok(r.templates.consult.roleBriefs.debaterA.zh);
   assert.equal(r.templates.general.roleBriefs, undefined);

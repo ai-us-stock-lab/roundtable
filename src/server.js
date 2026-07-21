@@ -232,8 +232,8 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         } catch { return json(res, 404, { error: 'not found' }); }
       }
       if (url.pathname === '/api/config') {
-        // 只暴露 name/roles/unavailable，不泄漏 command/envWhitelist 等 adapter 细节
-        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, write: !!a.writeArgs, ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
+        // 只额外暴露诊断所需的可执行路径，不泄漏 command 参数、envWhitelist 等 adapter 细节
+        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, write: !!a.writeArgs, bin: a.command?.[0] ?? '', ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, {
           title: t.title,
           debaterFormat: t.debaterFormat,
@@ -609,6 +609,21 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return json(res, 200, { ok: true });
         }
         if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }
+        if (action === 'workspace') {
+          const workspacePath = String(body.path ?? '').trim();
+          if (workspacePath && !existsSync(workspacePath)) return json(res, 400, { error: '项目目录不存在: ' + workspacePath });
+          if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
+          await b.setWorkspace(
+            workspacePath,
+            deriveSessionAgents(agents, b.participants, workspacePath),
+            workspacePath ? deriveWriteAgents(agents, b.participants) : {},
+          );
+          return json(res, 200, {
+            workspace: b.workspace,
+            writeCapable: Object.keys(b.writeAgents),
+            roles: Object.fromEntries(b.participants.map(id => [id, b.roleOf(id)])),
+          });
+        }
         if (action === 'participants') {
           // 中途增删参与者：add 按当前全局配置派生会话/写配置（含工作区只读挂载）
           const agentId = String(body.agentId ?? '');

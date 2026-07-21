@@ -185,6 +185,49 @@ test('server: 工作台创建/发消息/列表/升格/删除/恢复 全链路', 
   }
 });
 
+test('server: 工作区动作校验路径、重派生能力并持久化挂载/卸载', async () => {
+  const { startServer } = await import('../src/server.js');
+  const sessionsDir = mkdtempSync(path.join(tmpdir(), 'wb-workspace-srv-'));
+  const workspace = mkdtempSync(path.join(tmpdir(), 'wb-workspace-target-'));
+  const srv = await startServer({ port: 0, agentsFile: 'test/agents.fixture.json', sessionsDir });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const postResponse = (url, body) => fetch(base + url, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}),
+  });
+  try {
+    const created = await (await postResponse('/api/workbenches', { name: '换目录', participants: ['mockA', 'mockB'] })).json();
+    const endpoint = `/api/workbenches/${created.id}/workspace`;
+
+    const missingResponse = await postResponse(endpoint, { path: path.join(workspace, 'missing') });
+    assert.equal(missingResponse.status, 400);
+    assert.match((await missingResponse.json()).error, /项目目录不存在/);
+
+    const mountedResponse = await postResponse(endpoint, { path: workspace });
+    assert.equal(mountedResponse.status, 200);
+    const mounted = await mountedResponse.json();
+    assert.equal(mounted.workspace, workspace);
+    assert.ok(Array.isArray(mounted.writeCapable));
+    assert.deepEqual(mounted.writeCapable, []); // fixture 无 writeArgs
+    assert.ok(mounted.roles.mockA);
+    const entry = srv.benches.get(created.id);
+    assert.equal(entry.bench.agents.mockA.cwd, workspace);
+    assert.equal((await loadWorkbenchFromDisk(entry.bench.dir)).meta.workspace, workspace);
+
+    entry.bench.state = 'busy';
+    const busyResponse = await postResponse(endpoint, { path: '' });
+    assert.equal(busyResponse.status, 409);
+    entry.bench.state = 'idle';
+
+    const unmountedResponse = await postResponse(endpoint, { path: '' });
+    assert.equal(unmountedResponse.status, 200);
+    const unmounted = await unmountedResponse.json();
+    assert.equal(unmounted.workspace, '');
+    assert.ok(Array.isArray(unmounted.writeCapable));
+    assert.deepEqual(unmounted.writeCapable, []);
+    assert.equal((await loadWorkbenchFromDisk(entry.bench.dir)).meta.workspace, '');
+  } finally { srv.close(); }
+});
+
 // ---- 互聊（模型间接力讨论）----
 test('relay: 按圈子顺序接力 n 轮，后发者能看到前一位刚说的话', async () => {
   const baseDir = mkdtempSync(path.join(tmpdir(), 'wb-relay-'));

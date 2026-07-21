@@ -548,6 +548,18 @@ function appendWbError(text) {
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
 }
 
+function markWbWorkspaceInputError(message) {
+  const input = $('#wbWorkspace');
+  if (!input.dataset.workspaceErrorBound) {
+    input.dataset.workspaceErrorBound = 'true';
+    input.addEventListener('input', () => input.classList.remove('input-error'));
+  }
+  if (/项目目录不存在|directory does not exist/i.test(message)) {
+    input.classList.add('input-error');
+    input.focus();
+  }
+}
+
 function ensureLiveBox(agentName) {
   if (wbLiveBox) return wbLiveBox.querySelector('pre');
   wbLiveBox = document.createElement('div');
@@ -579,7 +591,7 @@ function onWbEvent(ev) {
   if (ev.type === 'participants' && wbInfo) {
     // 成员变化事件（含重连回放）——与本地一致则跳过，避免与 changeParticipants 的响应刷新互踩
     const same = ev.data.length === wbInfo.participants.length && ev.data.every(p => wbInfo.participants.includes(p));
-    if (!same) { wbInfo.participants = ev.data; renderWbRecipients(); }
+    if (!same) { wbInfo.participants = ev.data; renderWbMembers(); renderWbRecipients(); }
   }
   if (ev.type === 'build-progress') {
     const pre = ensureLiveBox(cfg.agents[ev.agentId]?.name ?? ev.agentId);
@@ -638,6 +650,74 @@ function onWbEvent(ev) {
   }
 }
 
+function wbAgentHealthState(agent) {
+  return agent?.unavailable ? 'bad' : (agent?.smoke ? (agent.smoke.ok ? 'ok' : 'bad') : 'unknown');
+}
+
+async function checkWbAgent(agentId, chip, dot) {
+  chip.disabled = true;
+  chip.setAttribute('aria-busy', 'true');
+  dot.className = 'as-dot as-checking';
+  dot.title = t('diag.checking');
+  try { await smokeAgent(agentId); }
+  finally { renderWbMembers(); }
+}
+
+async function editWbWorkspace(button) {
+  const workspacePath = prompt(t('wb.wsPrompt'), wbInfo.workspace ?? '');
+  if (workspacePath === null) return;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = t('wb.wsSaving');
+  let result;
+  try {
+    result = await (await fetch(`/api/workbenches/${wbId}/workspace`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: workspacePath }),
+    })).json();
+  } catch (e) { result = { error: t('dyn.netErr', { msg: e.message }) }; }
+  if (result.error) {
+    appendWbError(result.error);
+    renderWbMembers();
+    return;
+  }
+  Object.assign(wbInfo, { workspace: result.workspace, writeCapable: result.writeCapable, roles: result.roles });
+  renderWbMembers();
+  renderWbActionPanel();
+}
+
+function renderWbMembers() {
+  const members = $('#wbMembers');
+  if (!members || !wbInfo) return;
+  members.replaceChildren();
+  for (const agentId of wbInfo.participants) {
+    const agent = cfg.agents[agentId] ?? {};
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'member-chip';
+    chip.dataset.agent = agentId;
+    const activity = document.createElement('i');
+    activity.className = 'st-dot ' + (wbTyping[agentId] ? 'st-live' : 'st-idle');
+    activity.setAttribute('aria-hidden', 'true');
+    const health = document.createElement('span');
+    health.className = 'as-dot as-' + wbAgentHealthState(agent);
+    health.title = agentDiagnosticText(agent);
+    health.setAttribute('aria-label', agentDiagnosticText(agent));
+    chip.title = agentDiagnosticText(agent);
+    chip.append(activity, health, document.createTextNode(wbInfo.agentNames[agentId] ?? agent.name ?? agentId));
+    chip.onclick = () => checkWbAgent(agentId, chip, health);
+    members.appendChild(chip);
+  }
+  const workspaceButton = document.createElement('button');
+  workspaceButton.type = 'button';
+  workspaceButton.className = 'wb-ws' + (wbInfo.workspace ? '' : ' wb-ws-empty');
+  workspaceButton.textContent = wbInfo.workspace
+    ? (wbInfo.workspace.split(/[\\/]/).filter(Boolean).at(-1) || wbInfo.workspace)
+    : t('wb.wsMount');
+  workspaceButton.title = t('wb.wsEditTip');
+  workspaceButton.onclick = () => editWbWorkspace(workspaceButton);
+  members.appendChild(workspaceButton);
+}
+
 async function attachWorkbench(id) {
   let info;
   try { info = await (await fetch('/api/workbenches/' + id)).json(); } catch (e) { return setStatebar(t('dyn.noServer', { msg: e.message }), true); }
@@ -648,26 +728,8 @@ async function attachWorkbench(id) {
   wbId = id;
   wbInfo = info;
   $('#wbTitle').textContent = info.name || t('dyn.unnamedWb');
-  // 成员状态条（参考 agent 标签语义）：每人一枚芯片，发言中亮点
-  const members = $('#wbMembers');
-  members.innerHTML = '';
-  for (const p of info.participants) {
-    const chip = document.createElement('span');
-    chip.className = 'member-chip';
-    chip.dataset.agent = p;
-    const d = document.createElement('i');
-    d.className = 'st-dot st-idle';
-    chip.appendChild(d);
-    chip.appendChild(document.createTextNode(info.agentNames[p] ?? p));
-    members.appendChild(chip);
-  }
-  if (info.workspace) {
-    const ws = document.createElement('span');
-    ws.className = 'wb-ws';
-    ws.textContent = info.workspace.split(/[\\/]/).pop();
-    ws.title = t('dyn.mounted', { path: info.workspace });
-    members.appendChild(ws);
-  }
+  // 成员状态条：运行态与引擎健康态分离；成员灯和工作区芯片都可就地复查/修改
+  renderWbMembers();
   $('#wbLog').innerHTML = '';
   $('#wbChangesList').innerHTML = '';
   $('#wbConflicts').replaceChildren();
@@ -850,6 +912,7 @@ async function changeParticipants(op, agentId) {
   catch (e) { return appendWbError(t('dyn.netErr', { msg: e.message })); }
   if (r.error) return appendWbError(r.error);
   Object.assign(wbInfo, r); // participants/agentNames/writeCapable 局部刷新
+  renderWbMembers();
   renderWbRecipients(); // 动手面板随 updateWbRouteHint 链同步
 }
 
@@ -876,7 +939,7 @@ async function sendWbMessage() {
 $('#wbCreate').onclick = async () => {
   const participants = [...$('#wbParticipants').querySelectorAll('input:checked:not(.wb-arbiter)')].map(cb => cb.value); // 仲裁勾选框不是参与勾选
   const bar = $('#wbSetupBar');
-  const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
+  const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); markWbWorkspaceInputError(msg); };
   if (!participants.length) return err(t('dyn.pickParticipant'));
   // 入场即定角色：能力下拉 + 仲裁叠加勾选（无控件=纯讨论者,由后端默认处理）
   const roles = {};

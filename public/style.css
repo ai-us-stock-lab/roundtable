@@ -654,3 +654,73 @@ details.section[open] > summary { margin-bottom: 4px; }
 @media (max-width: 700px) {
   .tpl-role-brief-grid { grid-template-columns: 1fr; }
 }
+
+/* ===== 运维性 UX：引擎诊断、工作区切换与会话内健康检查 ===== */
+.input-error { border-color: var(--err); }
+
+button.as-label {
+  appearance: none; padding: 2px 0; border: 0; background: transparent;
+  color: var(--muted, #888); cursor: pointer; font: inherit; font-size: 12px;
+}
+button.as-label:hover { color: inherit; }
+button.as-label:focus-visible,
+button.member-chip:focus-visible,
+button.wb-ws:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.agent-diagnostics {
+  flex: 1 0 100%; min-width: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel);
+}
+.agent-diagnostic-row { padding: 9px 11px; border-top: 1px solid var(--line); }
+.agent-diagnostic-row:first-child { border-top: 0; }
+.agent-diagnostic-head { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 8px; }
+.agent-diagnostic-name { color: var(--ink); font-size: 12px; }
+.agent-diagnostic-bin {
+  min-width: 0; color: var(--dim); font: 10.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.agent-diagnostic-status { margin-top: 4px; color: var(--dim); font-size: 11.5px; line-height: 1.55; }
+.agent-diagnostic-status.diag-ok { color: var(--ok); }
+.agent-diagnostic-status.diag-bad { color: var(--err); }
+.agent-diagnostic-advanced { padding: 8px 11px; background: var(--raise); color: var(--dim); font-size: 11px; line-height: 1.5; }
+
+button.member-chip {
+  gap: 5px; color: inherit; cursor: pointer; font-family: inherit;
+  transition: transform 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+button.member-chip:hover:not(:disabled) { border-color: var(--accent); }
+button.member-chip:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+button.member-chip[aria-busy='true'] { cursor: progress; }
+button.member-chip:disabled { cursor: not-allowed; opacity: .62; }
+.member-chip .st-dot { margin-right: 0; }
+.member-chip .st-dot.st-idle { display: none; }
+.member-chip .as-dot { flex: 0 0 auto; }
+
+button.wb-ws {
+  appearance: none; min-height: 26px; margin-left: 4px; padding: 2px 8px;
+  border: 1px dashed var(--line); border-radius: 999px; background: transparent;
+  color: var(--dim); cursor: pointer; font: 11.5px/1.3 inherit;
+  transition: transform 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+button.wb-ws:hover:not(:disabled) { border-color: var(--accent); color: inherit; }
+button.wb-ws:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+button.wb-ws[aria-busy='true'] { cursor: progress; }
+button.wb-ws:disabled { opacity: .62; cursor: not-allowed; }
+.wb-ws-empty { color: var(--accent); }
+
+@media (pointer: coarse) {
+  button.as-label, button.member-chip, button.wb-ws { min-height: 44px; }
+}
+@media (max-width: 480px) {
+  .agent-diagnostic-head { grid-template-columns: 1fr; gap: 2px; }
+}
+@media (max-width: 600px) {
+  #workbench { padding-inline: 12px; }
+  #wbHead { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+  #wbMembers { display: flex; flex: 1 0 100%; flex-wrap: wrap; gap: 6px; order: 3; min-width: 0; }
+  button.member-chip, button.wb-ws { margin: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.member-chip, button.wb-ws { transition: none; }
+  .member-chip .as-checking { animation: none; }
+}

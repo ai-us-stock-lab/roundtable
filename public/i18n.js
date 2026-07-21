@@ -232,6 +232,19 @@ const I18N = {
   'setup.roleBriefs': { zh: '角色分工', en: 'Role assignments' },
   'setup.roleBriefA': { zh: '辩手 A · 视角', en: 'Debater A · Perspective' },
   'setup.roleBriefB': { zh: '辩手 B · 视角', en: 'Debater B · Perspective' },
+  'diag.toggleTip': { zh: '展开或收起引擎诊断与修复指引', en: 'Show or hide engine diagnostics and recovery guidance' },
+  'diag.notFound': { zh: '未找到可执行文件——确认已安装，或在 adapters/agents.json 配置路径/环境变量，改后重启服务', en: 'Executable not found. Confirm it is installed, or configure its path or environment variable in adapters/agents.json, then restart the service.' },
+  'diag.auth': { zh: '登录态失效——在终端运行该 CLI 完成登录，然后点灯复查', en: 'Login expired. Run this CLI in a terminal and complete login, then click its light to re-check.' },
+  'diag.timeout': { zh: '响应超时——引擎可能较慢，可点灯重试；持续超时可在 adapters/agents.json 调大 timeoutMs（重启生效）', en: 'Response timed out. The engine may be slow; click its light to retry. If timeouts persist, increase timeoutMs in adapters/agents.json and restart the service.' },
+  'diag.failGeneric': { zh: '检查失败（{msg}）——点灯重试；若持续失败，请检查该 CLI 与 adapters/agents.json 配置', en: 'Health check failed ({msg}). Click its light to retry; if it persists, check the CLI and adapters/agents.json.' },
+  'diag.ok': { zh: '就绪（{s}s）', en: 'Ready ({s}s)' },
+  'diag.unknown': { zh: '尚未检查——点灯执行一次真实调用', en: 'Not checked. Click its light to run one real health call.' },
+  'diag.checking': { zh: '检查中…', en: 'Checking…' },
+  'diag.advanced': { zh: '高级配置（命令/参数/超时）：adapters/agents.json，修改后重启服务生效', en: 'Advanced configuration (command, arguments, timeout): adapters/agents.json. Restart the service after changes.' },
+  'wb.wsEditTip': { zh: '切换或卸载工作区项目目录', en: 'Switch or unmount the workspace project directory' },
+  'wb.wsPrompt': { zh: '输入项目目录；留空将卸载当前目录：', en: 'Enter a project directory. Leave it empty to unmount the current directory:' },
+  'wb.wsMount': { zh: '＋ 挂载项目目录', en: '+ Mount project directory' },
+  'wb.wsSaving': { zh: '切换中…', en: 'Switching…' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');

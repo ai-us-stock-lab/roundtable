@@ -1,5 +1,7 @@
 // ===== 启动：填充引擎/模板下拉、刷新会话列表、装配 draft 预填；最后一个加载 =====
 
+let agentDiagnosticsOpen = { agentStatus: false, wbAgentStatus: false };
+
 async function boot() {
   applyI18n(); // 先按当前语言渲染所有静态文本（data-i18n 属性）
   try {
@@ -68,13 +70,61 @@ $('#langToggle').onclick = () => setLang(LANG === 'zh' ? 'en' : 'zh');
 
 // ===== 引擎状态灯：灰=未检查 绿=就绪 红=故障。检查=一次真实 CLI 最小调用（消耗额度），
 // 只由用户显式触发（点单灯或「检查全部」），绝不自动轮询。=====
+function agentDiagnosticText(agent) {
+  if (agent.unavailable) return t('diag.notFound');
+  if (!agent.smoke) return t('diag.unknown');
+  if (agent.smoke.ok) return t('diag.ok', { s: Math.max(1, Math.round((agent.smoke.durationMs ?? 0) / 1000)) });
+  if (agent.smoke.error === 'auth') return t('diag.auth');
+  if (agent.smoke.error === 'timeout') return t('diag.timeout');
+  return t('diag.failGeneric', { msg: agent.smoke.error ?? '' });
+}
+
+function renderAgentDiagnostics(container) {
+  const panel = document.createElement('div');
+  panel.className = 'agent-diagnostics';
+  panel.setAttribute('role', 'region');
+  panel.setAttribute('aria-label', t('diag.toggleTip'));
+  for (const [, agent] of Object.entries(cfg.agents)) {
+    const row = document.createElement('div');
+    row.className = 'agent-diagnostic-row';
+    const head = document.createElement('div');
+    head.className = 'agent-diagnostic-head';
+    const name = document.createElement('strong');
+    name.className = 'agent-diagnostic-name';
+    name.textContent = agent.name;
+    const bin = document.createElement('code');
+    bin.className = 'agent-diagnostic-bin';
+    bin.textContent = agent.bin;
+    bin.title = agent.bin;
+    head.append(name, bin);
+    const status = document.createElement('div');
+    const state = agent.unavailable || (agent.smoke && !agent.smoke.ok) ? 'bad' : (agent.smoke?.ok ? 'ok' : 'unknown');
+    status.className = 'agent-diagnostic-status diag-' + state;
+    status.textContent = agentDiagnosticText(agent);
+    row.append(head, status);
+    panel.appendChild(row);
+  }
+  const advanced = document.createElement('div');
+  advanced.className = 'agent-diagnostic-advanced';
+  advanced.textContent = t('diag.advanced');
+  panel.appendChild(advanced);
+  container.appendChild(panel);
+}
+
 function renderAgentStatus() {
   for (const el of [$('#agentStatus'), $('#wbAgentStatus')]) {
     if (!el) continue;
-    el.innerHTML = '';
-    const label = document.createElement('span');
+    el.replaceChildren();
+    const label = document.createElement('button');
+    label.type = 'button';
     label.className = 'as-label';
     label.textContent = t('status.engines');
+    label.title = t('diag.toggleTip');
+    label.setAttribute('aria-expanded', String(!!agentDiagnosticsOpen[el.id]));
+    label.onclick = () => {
+      agentDiagnosticsOpen[el.id] = !agentDiagnosticsOpen[el.id];
+      renderAgentStatus();
+    };
     el.appendChild(label);
     for (const [id, a] of Object.entries(cfg.agents)) {
       const chip = document.createElement('button');
@@ -97,6 +147,7 @@ function renderAgentStatus() {
     btn.textContent = t('status.checkAll');
     btn.onclick = smokeAllAgents;
     el.appendChild(btn);
+    if (agentDiagnosticsOpen[el.id]) renderAgentDiagnostics(el);
   }
 }
 
@@ -113,6 +164,7 @@ async function smokeAgent(id) {
   if (r.error && r.ok === undefined) r = { ok: false, error: r.error }; // 409 等错误响应归一
   cfg.agents[id].smoke = r;
   renderAgentStatus();
+  return r;
 }
 
 async function smokeAllAgents() {
@@ -120,4 +172,23 @@ async function smokeAllAgents() {
   for (const [id, a] of Object.entries(cfg.agents)) if (!a.unavailable) await smokeAgent(id);
 }
 
+function bindMeetingWorkspaceErrorHighlight() {
+  const input = $('#workspace');
+  const start = $('#start');
+  if (!input || !start || start.dataset.workspaceErrorBound) return;
+  start.dataset.workspaceErrorBound = 'true';
+  input.addEventListener('input', () => input.classList.remove('input-error'));
+  const originalHandler = start.onclick;
+  start.onclick = async function (...args) {
+    const result = await originalHandler.apply(this, args);
+    const message = $('#setupbar')?.textContent ?? '';
+    if (/项目目录不存在|directory does not exist/i.test(message)) {
+      input.classList.add('input-error');
+      input.focus();
+    }
+    return result;
+  };
+}
+
+bindMeetingWorkspaceErrorHighlight();
 boot();

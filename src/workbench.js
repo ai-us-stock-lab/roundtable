@@ -773,6 +773,15 @@ export class Workbench {
     this.emit({ type: 'sys', data: this.tr(`已丢弃 ${targets.length} 个文件的改动（patch 保留在会话目录可手工找回）`, `Discarded changes to ${targets.length} file(s) (the patch stays in the session dir for manual recovery)`) });
   }
 
+  async setWorkspace(workspacePath, sessionAgents, writeAgents) {
+    if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
+    this.workspace = workspacePath;
+    this.agents = sessionAgents;
+    this.writeAgents = writeAgents;
+    this.emit({ type: 'sys', data: this.tr(`工作区已切换：${workspacePath || '(无)'}`, `Workspace switched: ${workspacePath || '(none)'}`) });
+    await this.saveMeta();
+  }
+
   // ---- 中途增删参与者：新成员靠提示词重建即可看到全部历史，无需补课 ----
   async addParticipant(id, agentCfg, writeCfg) {
     if (this.state === 'busy') throw new Error(this.tr('上一条消息还在处理中', 'The previous message is still processing'));
