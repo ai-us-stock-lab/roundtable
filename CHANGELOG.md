@@ -6,6 +6,25 @@ Before 1.0, `0.x.y` uses `y` for bug-fix-only releases, while `x` releases may i
 
 ## Unreleased
 
+## v0.3.1 - 2026-07-21
+
+### Fixed / 修复
+
+- `npm test` failed on Node 20: the old command relied on glob arguments that only Node 22+ supports, so both Node 20 CI jobs errored before any test ran. Tests now run identically on Node 20/22 and Windows/Ubuntu. / 修复 Node 20 下 `npm test` 失败：旧命令依赖 Node 22+ 才支持的 glob 参数，两个 Node 20 的 CI 任务在测试开始前就报错。现在 Node 20/22、Windows/Ubuntu 行为一致。
+- `adapters/agents.json` is now your own file instead of a tracked repository file, so editing your agent config no longer collides with updates. A fresh checkout generates it from `adapters/agents.example.json` on first start. / `adapters/agents.json` 改为归你所有的本地文件，不再随仓库跟踪，修改 agent 配置不会再与更新冲突；全新检出会在首次启动时从 `adapters/agents.example.json` 生成。
+
+### Added / 新增
+
+- Continuous integration on GitHub Actions: Windows and Ubuntu × Node 20 and 22. / GitHub Actions 持续集成：Windows 与 Ubuntu × Node 20 与 22。
+- Compatibility tests that keep sessions created by earlier versions readable. / 兼容性测试，保证早期版本创建的会话继续可读。
+- This changelog, a release checklist, and an "Updating" section in the README. / 本更新日志、发布清单，以及 README 的「更新」小节。
+
+### Upgrade notes / 升级须知
+
+- **Restart required? Yes.** The backend changed; stop the running Roundtable process and start it again. / **需要重启吗？需要。** 后端有变更，请停止现有进程后重新启动。
+- **Configuration?** Nothing to do. `adapters/agents.json` is yours and updates never overwrite it. / **配置要动吗？** 无需操作。`adapters/agents.json` 归你所有，更新不会覆盖。
+- **Old sessions?** Still open, and now covered by compatibility tests. / **老会话？** 仍可打开，并已有兼容测试覆盖。
+
 ## v0.3.0 - 2026-07-21
 
 ### Added / 新增
