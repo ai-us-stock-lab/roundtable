@@ -1,0 +1,2 @@
+{"seq":0,"from":"user","name":"用户","to":["mockA"],"toNames":["MockA"],"text":"旧格式问题","ts":"2026-07-01T00:00:00.000Z"}
+{"seq":1,"from":"mockA","name":"MockA","text":"旧格式回答","ts":"2026-07-01T00:00:01.000Z"}

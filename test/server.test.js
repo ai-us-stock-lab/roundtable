@@ -42,6 +42,41 @@ test('GET /api/config 返回 agents/bin 与 templates，且不泄漏 command/env
   assert.equal(r.templates.general.roleBriefs, undefined);
 });
 
+test('首次启动从同目录 agents.example.json 生成用户配置并正常提供 config', async () => {
+  const configDir = mkdtempSync(path.join(tmpdir(), 'rt-config-bootstrap-'));
+  const agentsFile = path.join(configDir, 'agents.json');
+  const exampleFile = path.join(configDir, 'agents.example.json');
+  const bootAgent = {
+    boot: {
+      name: 'Boot Agent',
+      command: [process.execPath, 'test/mock-cli.cjs'],
+      input: 'stdin',
+      output: 'text',
+      timeoutMs: 5000,
+      envWhitelist: ['PATH', 'SYSTEMROOT'],
+      cwd: '.',
+      roles: ['debater'],
+    },
+  };
+  writeFileSync(exampleFile, JSON.stringify(bootAgent, null, 2), 'utf8');
+  const isolated = await startServer({
+    port: 0,
+    agentsFile,
+    templatesDir: 'templates',
+    sessionsDir: mkdtempSync(path.join(tmpdir(), 'rt-config-sessions-')),
+  });
+  try {
+    assert.equal(existsSync(agentsFile), true);
+    assert.deepEqual(JSON.parse(readFileSync(agentsFile, 'utf8')), bootAgent);
+    const response = await fetch(`http://127.0.0.1:${isolated.port}/api/config`);
+    assert.equal(response.status, 200);
+    const config = await response.json();
+    assert.equal(config.agents.boot.name, 'Boot Agent');
+  } finally {
+    isolated.close();
+  }
+});
+
 test('GET /api/browse 默认浏览 home；文件路径与不存在路径返回 200 error', async () => {
   const home = await (await fetch(BASE + '/api/browse')).json();
   assert.equal(home.ok, true);

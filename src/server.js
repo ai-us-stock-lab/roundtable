@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile, readdir, rm, rename, mkdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rm, rename, mkdir, stat, copyFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -169,6 +169,13 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
     } catch { /* 探测失败按不陈旧处理 */ }
     return false;
   };
+  if (!existsSync(agentsFile)) {
+    const exampleFile = path.join(path.dirname(agentsFile), 'agents.example.json');
+    if (existsSync(exampleFile)) {
+      await copyFile(exampleFile, agentsFile);
+      console.log(`[config] 已从 agents.example.json 生成 ${agentsFile}`);
+    }
+  }
   const agents = JSON.parse(await readFile(agentsFile, 'utf8'));
   // 启动与热重载共用同一加载路径：解析失败不阻塞服务，只标记该 agent 不可用。
   const loadAgents = configuredAgents => {

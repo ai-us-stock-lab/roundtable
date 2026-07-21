@@ -5,3 +5,5 @@ workdir/*
 !workdir/.gitkeep
 .claude/
 scripts/demo/.work/
+# 用户自有配置，首次启动从 example 复制
+adapters/agents.json
