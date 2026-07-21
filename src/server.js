@@ -1,7 +1,9 @@
 import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, readdir, rm, rename, mkdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
 import { Workbench, loadWorkbenchFromDisk } from './workbench.js';
@@ -21,6 +23,62 @@ const STATIC = {
   '/app-sidebar.js': ['public/app-sidebar.js', 'text/javascript'],
   '/app-boot.js': ['public/app-boot.js', 'text/javascript'],
 };
+
+let pickInFlight = false;
+
+const WINDOWS_FOLDER_PICKER_SCRIPT = `$ErrorActionPreference = 'Stop'
+try {
+  Add-Type -AssemblyName System.Windows.Forms | Out-Null
+  $dlg = New-Object System.Windows.Forms.OpenFileDialog
+  $dlg.Title = $env:RT_PICK_TITLE
+  $dlg.ValidateNames = $false
+  $dlg.CheckFileExists = $false
+  $dlg.CheckPathExists = $true
+  $dlg.FileName = $env:RT_PICK_PLACEHOLDER
+  if ($env:RT_PICK_START -and (Test-Path -LiteralPath $env:RT_PICK_START)) { $dlg.InitialDirectory = $env:RT_PICK_START }
+  if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    $p = Split-Path -LiteralPath $dlg.FileName -Parent
+    if ($p) { Write-Output $p; exit 0 }
+  }
+  exit 2
+} catch {
+  try {
+    $fb = New-Object System.Windows.Forms.FolderBrowserDialog
+    if ($env:RT_PICK_START) { $fb.SelectedPath = $env:RT_PICK_START }
+    if ($fb.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $fb.SelectedPath; exit 0 }
+    exit 2
+  } catch { exit 3 }
+}
+`;
+
+const runFolderDialogProcess = (command, args, options = {}) => new Promise(resolve => {
+  let child;
+  let stdout = '';
+  let settled = false;
+  let timedOut = false;
+  let timer;
+  const finish = result => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolve({ stdout, timedOut, ...result });
+  };
+  try {
+    child = spawn(command, args, options);
+  } catch (error) {
+    resolve({ stdout, timedOut, spawnError: error });
+    return;
+  }
+  timer = setTimeout(() => {
+    timedOut = true;
+    try { child.kill(); } catch { finish({ code: null }); }
+  }, 5 * 60 * 1000);
+  timer.unref?.();
+  child.stdout?.on('data', chunk => { stdout += chunk.toString('utf8'); });
+  child.stderr?.resume();
+  child.once('error', error => finish({ spawnError: error }));
+  child.once('close', code => finish({ code }));
+});
 
 // 用户常直接粘贴 Windows「复制文件地址」的结果(首尾带引号),或带首尾空白。
 // 统一在入口处剥掉,避免出现「路径不存在」这种误导性报错。
@@ -273,8 +331,87 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return res.end(data);
         } catch { return json(res, 404, { error: 'not found' }); }
       }
+      if (url.pathname === '/api/pick-folder' && req.method === 'POST') {
+        const body = await readBody(req);
+        const pickLang = body.lang === 'en' ? 'en' : 'zh';
+        if (pickInFlight) {
+          return json(res, 409, { error: pickLang === 'en' ? 'A folder dialog is already open' : '已有一个选择窗口打开' });
+        }
+        pickInFlight = true;
+        let pickScriptPath = '';
+        try {
+          const requestedStart = normalizeFsPath(body.start);
+          const start = requestedStart && path.isAbsolute(requestedStart) ? requestedStart : '';
+          let result;
+          try {
+            if (process.platform === 'win32') {
+              pickScriptPath = path.join(tmpdir(), `roundtable-folder-picker-${randomUUID()}.ps1`);
+              await writeFile(pickScriptPath, WINDOWS_FOLDER_PICKER_SCRIPT, 'utf8');
+              result = await runFolderDialogProcess(
+                'powershell.exe',
+                ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', pickScriptPath],
+                {
+                  env: {
+                    ...process.env,
+                    RT_PICK_START: start ?? '',
+                    RT_PICK_TITLE: pickLang === 'en'
+                      ? 'Choose project folder — open the folder you want'
+                      : '选择项目文件夹——进入目标文件夹后点『打开』',
+                    RT_PICK_PLACEHOLDER: pickLang === 'en' ? 'Use this folder' : '选择此文件夹',
+                  },
+                  windowsHide: false,
+                },
+              );
+            } else if (process.platform === 'darwin') {
+              result = await runFolderDialogProcess('osascript', ['-e', 'POSIX path of (choose folder)']);
+            } else {
+              result = await runFolderDialogProcess('zenity', ['--file-selection', '--directory']);
+            }
+          } catch (error) {
+            result = { spawnError: error, stdout: '', timedOut: false };
+          }
+
+          if (result.timedOut) return json(res, 200, { canceled: true });
+          if (result.spawnError) {
+            return json(res, 200, {
+              unsupported: true,
+              error: pickLang === 'en'
+                ? 'Native dialog unavailable; falling back to the built-in picker'
+                : '系统对话框不可用，已切换到内置选择器',
+            });
+          }
+          const selectedPath = String(result.stdout ?? '').replace(/^\uFEFF/, '').trim();
+          if (result.code === 0 && selectedPath) {
+            if (isDir(selectedPath)) return json(res, 200, { ok: true, path: selectedPath });
+            return json(res, 200, { error: pickLang === 'en' ? 'Not a valid folder' : '不是有效的文件夹' });
+          }
+          if (result.code === 0) {
+            return json(res, 200, { error: pickLang === 'en' ? 'Not a valid folder' : '不是有效的文件夹' });
+          }
+          if (result.code === 2 || process.platform !== 'win32') return json(res, 200, { canceled: true });
+          return json(res, 200, {
+            unsupported: true,
+            error: pickLang === 'en'
+              ? 'Native dialog unavailable; falling back to the built-in picker'
+              : '系统对话框不可用，已切换到内置选择器',
+          });
+        } finally {
+          if (pickScriptPath) {
+            try { await rm(pickScriptPath, { force: true }); } catch { /* 临时脚本清理失败不覆盖选择结果 */ }
+          }
+          pickInFlight = false;
+        }
+      }
       if (url.pathname === '/api/browse' && req.method === 'GET') {
         const requestedPath = normalizeFsPath(url.searchParams.get('path'));
+        if (process.platform === 'win32' && requestedPath === ':drives:') {
+          const dirs = [];
+          for (let code = 65; code <= 90; code++) {
+            const drive = String.fromCharCode(code) + ':\\';
+            if (existsSync(drive)) dirs.push(drive);
+          }
+          return json(res, 200, { ok: true, path: '', parent: '', dirs });
+        }
         const browsePath = path.resolve(requestedPath || homedir());
         const browseLang = url.searchParams.get('lang') === 'en' ? 'en' : 'zh';
         const browsePathError = workspacePathError(browsePath, browseLang);

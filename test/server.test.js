@@ -64,6 +64,14 @@ test('GET /api/browse 接受带引号的合法目录路径', async () => {
   assert.equal(result.path, path.resolve(sessionsDir));
 });
 
+test('GET /api/browse?path=:drives: 在 Windows 返回可用盘符', { skip: process.platform !== 'win32' }, async () => {
+  const result = await (await fetch(BASE + '/api/browse?path=' + encodeURIComponent(':drives:'))).json();
+  assert.equal(result.ok, true);
+  assert.equal(result.path, '');
+  assert.equal(result.parent, '');
+  assert.ok(result.dirs.includes('C:\\'));
+});
+
 test('agents raw：读取原文、拒绝非法配置、保存后热重载公开配置', async () => {
   const rawDir = mkdtempSync(path.join(tmpdir(), 'rt-agents-raw-'));
   const rawAgentsFile = path.join(rawDir, 'agents.json');

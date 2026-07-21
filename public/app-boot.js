@@ -185,9 +185,9 @@ function bindFolderBrowseButtons() {
   document.querySelectorAll('.browse-btn[data-target]').forEach(button => {
     if (button.dataset.folderPickerBound) return;
     button.dataset.folderPickerBound = 'true';
-    button.onclick = () => {
+    button.onclick = async () => {
       const input = document.getElementById(button.dataset.target);
-      if (input) openFolderPicker(input);
+      if (input) await pickFolderFor(input);
     };
   });
 }
@@ -212,6 +212,7 @@ function showWorkspaceError(barEl, inputEl, payload) {
   const data = payload && typeof payload === 'object' ? payload : { error: payload };
   const message = String(data.error ?? '');
   const pathRelated = !!data.suggest || /找不到这个路径|这是一个文件，不是文件夹|Path not found|This is a file, not a folder|项目目录(?:不存在|必须是文件夹)|Project directory (?:does not exist|must be a folder)/i.test(message);
+  barEl.dataset.workspacePathError = pathRelated ? 'true' : 'false';
   barEl.replaceChildren();
   barEl.hidden = false;
   barEl.classList.add('err');
@@ -230,6 +231,7 @@ function showWorkspaceError(barEl, inputEl, payload) {
       barEl.replaceChildren();
       barEl.classList.remove('err');
       barEl.hidden = true;
+      delete barEl.dataset.workspacePathError;
       inputEl.focus();
     };
     barEl.appendChild(useParentButton);
@@ -240,10 +242,70 @@ function showWorkspaceError(barEl, inputEl, payload) {
   }
 }
 
-async function openFolderPicker(targetInputEl) {
+async function pickFolderFor(inputEl) {
+  if (!inputEl) return;
+  const button = [...document.querySelectorAll('.browse-btn[data-target]')]
+    .find(candidate => candidate.dataset.target === inputEl.id);
+  const errorBar = inputEl.id === 'wbWorkspace' ? $('#wbSetupBar') : $('#setupbar');
+  const clearPathError = () => {
+    inputEl.classList.remove('input-error');
+    if (errorBar?.dataset.workspacePathError !== 'true') return;
+    errorBar.replaceChildren();
+    errorBar.classList.remove('err');
+    errorBar.hidden = true;
+    delete errorBar.dataset.workspacePathError;
+  };
+  const oldLabel = button?.textContent ?? '';
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = t('folder.opening');
+  }
+  try {
+    let response;
+    let result;
+    try {
+      response = await fetch('/api/pick-folder', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ start: normalizePathInput(inputEl.value) || '', lang: LANG }),
+      });
+      result = await response.json();
+    } catch {
+      await openFolderPicker(inputEl, true);
+      return;
+    }
+    if (response.status === 409) {
+      showWorkspaceError(errorBar, inputEl, { error: result.error || t('folder.busy') });
+      return;
+    }
+    if (result.ok) {
+      inputEl.value = normalizePathInput(result.path);
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      clearPathError();
+      return;
+    }
+    if (result.canceled) return;
+    if (result.unsupported || response.status === 404) {
+      await openFolderPicker(inputEl, true);
+      return;
+    }
+    showWorkspaceError(errorBar, inputEl, result.error || t('browse.notDir'));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = oldLabel;
+    }
+  }
+}
+
+async function openFolderPicker(targetInputEl, showFallbackNote = false) {
   if (!targetInputEl) return;
   if (appBootActiveModalClose) appBootActiveModalClose();
   const previousFocus = document.activeElement;
+  const browseTrigger = [...document.querySelectorAll('.browse-btn[data-target]')]
+    .find(candidate => candidate.dataset.target === targetInputEl.id);
   const overlay = document.createElement('div');
   overlay.className = 'folder-picker-overlay';
   const dialog = document.createElement('section');
@@ -255,8 +317,15 @@ async function openFolderPicker(targetInputEl) {
   const title = document.createElement('h2');
   title.id = 'folderPickerTitle';
   title.textContent = t('folder.title');
-  const pathText = document.createElement('code');
-  pathText.className = 'folder-picker-path';
+  const fallbackNote = document.createElement('p');
+  fallbackNote.className = 'folder-picker-fallback-note';
+  fallbackNote.textContent = t('folder.fallbackNote');
+  const pathInput = document.createElement('input');
+  pathInput.type = 'text';
+  pathInput.className = 'folder-picker-path';
+  pathInput.placeholder = t('folder.pathHint');
+  pathInput.setAttribute('aria-label', t('folder.pathHint'));
+  pathInput.value = normalizePathInput(targetInputEl.value);
   const upButton = document.createElement('button');
   upButton.type = 'button';
   upButton.className = 'folder-picker-up';
@@ -281,7 +350,9 @@ async function openFolderPicker(targetInputEl) {
   cancelButton.type = 'button';
   cancelButton.textContent = t('folder.cancel');
   actions.append(pickButton, cancelButton);
-  dialog.append(title, pathText, upButton, list, status, error, actions);
+  dialog.appendChild(title);
+  if (showFallbackNote) dialog.appendChild(fallbackNote);
+  dialog.append(pathInput, upButton, list, status, error, actions);
   overlay.appendChild(dialog);
 
   let currentPath = '';
@@ -290,12 +361,13 @@ async function openFolderPicker(targetInputEl) {
     window.removeEventListener('keydown', onPickerKeydown);
     overlay.remove();
     if (appBootActiveModalClose === closePicker) appBootActiveModalClose = null;
-    if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+    const focusTarget = previousFocus?.isConnected && previousFocus !== document.body ? previousFocus : browseTrigger;
+    if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
   };
   const onPickerKeydown = event => {
     if (event.key === 'Escape') return closePicker();
     if (event.key !== 'Tab') return;
-    const focusable = [...dialog.querySelectorAll('button:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+    const focusable = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
     if (!focusable.length) return;
     const first = focusable[0], last = focusable[focusable.length - 1];
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -325,10 +397,11 @@ async function openFolderPicker(targetInputEl) {
     }
   };
 
-  const loadFolder = async (requestedPath, retainedError = null) => {
+  const loadFolder = async requestedPath => {
     status.textContent = t('folder.loading');
-    renderPickerError(retainedError);
+    renderPickerError(null);
     list.setAttribute('aria-busy', 'true');
+    pathInput.disabled = true;
     upButton.disabled = true;
     pickButton.disabled = true;
     let result;
@@ -344,14 +417,15 @@ async function openFolderPicker(targetInputEl) {
       status.textContent = '';
       renderPickerError(problem);
       list.setAttribute('aria-busy', 'false');
+      pathInput.disabled = false;
+      pathInput.value = normalizePathInput(requestedPath);
       upButton.disabled = !currentPath;
-      pickButton.disabled = !currentPath;
-      if (!currentPath && requestedPath) return loadFolder('', problem);
+      pickButton.disabled = true;
       return;
     }
     currentPath = result.path;
     parentPath = result.parent;
-    pathText.textContent = currentPath;
+    pathInput.value = currentPath;
     list.replaceChildren();
     if (!result.dirs.length) {
       const empty = document.createElement('div');
@@ -365,6 +439,7 @@ async function openFolderPicker(targetInputEl) {
         item.className = 'folder-picker-item';
         item.textContent = name;
         item.onclick = () => {
+          if (!currentPath) return loadFolder(name);
           const separator = currentPath.includes('\\') ? '\\' : '/';
           const childPath = currentPath.endsWith(separator) ? currentPath + name : currentPath + separator + name;
           loadFolder(childPath);
@@ -373,20 +448,39 @@ async function openFolderPicker(targetInputEl) {
       }
     }
     status.textContent = '';
-    renderPickerError(retainedError);
+    renderPickerError(null);
     list.setAttribute('aria-busy', 'false');
-    upButton.disabled = false;
-    pickButton.disabled = false;
+    pathInput.disabled = false;
+    upButton.disabled = !currentPath;
+    pickButton.disabled = !currentPath;
   };
 
-  upButton.onclick = () => loadFolder(parentPath);
+  pathInput.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    loadFolder(normalizePathInput(pathInput.value));
+  });
+  upButton.onclick = () => {
+    const atWindowsDriveRoot = /^[A-Za-z]:[\\/]$/.test(currentPath) && parentPath === currentPath;
+    loadFolder(atWindowsDriveRoot ? ':drives:' : parentPath);
+  };
   pickButton.onclick = () => {
     if (!currentPath) return;
     targetInputEl.value = currentPath;
     targetInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    targetInputEl.classList.remove('input-error');
+    const errorBar = targetInputEl.id === 'wbWorkspace' ? $('#wbSetupBar') : $('#setupbar');
+    if (errorBar?.dataset.workspacePathError === 'true') {
+      errorBar.replaceChildren();
+      errorBar.classList.remove('err');
+      errorBar.hidden = true;
+      delete errorBar.dataset.workspacePathError;
+    }
     closePicker();
   };
-  await loadFolder(normalizePathInput(targetInputEl.value));
+  const initialPath = normalizePathInput(targetInputEl.value);
+  await loadFolder('');
+  if (initialPath) await loadFolder(initialPath);
 }
 
 async function openAgentConfig() {

@@ -810,3 +810,16 @@ button.wb-ws:disabled { opacity: .62; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .browse-btn, .as-configure { transition: none; }
 }
+
+/* 内置目录选择器：仅在系统原生对话框不可用时显示 */
+.folder-picker-fallback-note {
+  margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  color: var(--dim); background: var(--raise); font-size: 12px; line-height: 1.45;
+}
+.folder-picker input.folder-picker-path {
+  box-sizing: border-box; width: 100%; min-height: 36px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--raise); color: var(--ink);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.folder-picker input.folder-picker-path:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.folder-picker-item { display: flex; align-items: center; border-radius: var(--r-ctl); }

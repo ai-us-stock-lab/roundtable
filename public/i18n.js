@@ -263,6 +263,10 @@ const I18N = {
   'agentcfg.loading': { zh: '正在读取配置…', en: 'Loading config…' },
   'agentcfg.saving': { zh: '正在保存…', en: 'Saving…' },
   'workspace.useParent': { zh: '使用所在文件夹', en: 'Use containing folder' },
+  'folder.opening': { zh: '正在打开系统对话框…', en: 'Opening system dialog…' },
+  'folder.fallbackNote': { zh: '系统对话框不可用，这里是内置选择器', en: 'System dialog unavailable — using the built-in picker' },
+  'folder.pathHint': { zh: '可直接粘贴路径后回车', en: 'Paste a path and press Enter' },
+  'folder.busy': { zh: '已有一个选择窗口打开', en: 'A folder dialog is already open' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
