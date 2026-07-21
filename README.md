@@ -6,7 +6,7 @@
 
 [▶ Watch the 67s English walkthrough](docs/demo-en.mp4) · [中文解说版](docs/demo.mp4)
 
-[Get the stable v0.3.0 release](https://github.com/ai-us-stock-lab/roundtable/releases/tag/v0.3.0) · [Test it on a real decision and report what happened](https://github.com/ai-us-stock-lab/roundtable/issues/1)
+[Get the stable v0.3.1 release](https://github.com/ai-us-stock-lab/roundtable/releases/tag/v0.3.1) · [Test it on a real decision and report what happened](https://github.com/ai-us-stock-lab/roundtable/issues/1)
 
 > Rides your own CLI subscriptions (Claude Code / Codex / …) — zero marginal API cost, zero dependencies, all local. The UI ships in **English and 中文** (toggle in the top-left).
 >
