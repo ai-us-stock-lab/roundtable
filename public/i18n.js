@@ -262,6 +262,7 @@ const I18N = {
   'agentcfg.invalid': { zh: '配置无效', en: 'Invalid config' },
   'agentcfg.loading': { zh: '正在读取配置…', en: 'Loading config…' },
   'agentcfg.saving': { zh: '正在保存…', en: 'Saving…' },
+  'workspace.useParent': { zh: '使用所在文件夹', en: 'Use containing folder' },
 };
 
 let LANG = localStorage.getItem('rt-lang') || (String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');

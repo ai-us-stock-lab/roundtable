@@ -426,7 +426,7 @@ $('#start').onclick = async () => {
   btn.disabled = false;
   btn.textContent = oldLabel;
   if (r.error) {
-    return setStatebar(r.error, true);
+    return showWorkspaceError($('#setupbar'), $('#workspace'), r);
   }
   closeWbEvents();
   sid = r.id;

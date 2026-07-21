@@ -6,6 +6,7 @@ let appBootActiveModalClose = null;
 async function boot() {
   applyI18n(); // 先按当前语言渲染所有静态文本（data-i18n 属性）
   bindFolderBrowseButtons();
+  bindWorkspacePathInputs();
   try {
     cfg = await (await fetch('/api/config')).json();
   } catch (e) {
@@ -191,6 +192,54 @@ function bindFolderBrowseButtons() {
   });
 }
 
+function normalizePathInput(v) {
+  let s = String(v ?? '').trim();
+  if (s.length >= 2 && ((s[0] === '"' && s.at(-1) === '"') || (s[0] === "'" && s.at(-1) === "'"))) s = s.slice(1, -1).trim();
+  return s;
+}
+
+function bindWorkspacePathInputs() {
+  for (const input of [$('#wbWorkspace'), $('#workspace')]) {
+    if (!input || input.dataset.workspacePathBound) continue;
+    input.dataset.workspacePathBound = 'true';
+    input.addEventListener('change', () => { input.value = normalizePathInput(input.value); });
+    input.addEventListener('input', () => input.classList.remove('input-error'));
+  }
+}
+
+function showWorkspaceError(barEl, inputEl, payload) {
+  if (!barEl) return;
+  const data = payload && typeof payload === 'object' ? payload : { error: payload };
+  const message = String(data.error ?? '');
+  const pathRelated = !!data.suggest || /找不到这个路径|这是一个文件，不是文件夹|Path not found|This is a file, not a folder|项目目录(?:不存在|必须是文件夹)|Project directory (?:does not exist|must be a folder)/i.test(message);
+  barEl.replaceChildren();
+  barEl.hidden = false;
+  barEl.classList.add('err');
+  const text = document.createElement('span');
+  text.textContent = message;
+  barEl.appendChild(text);
+  if (data.suggest && inputEl) {
+    const useParentButton = document.createElement('button');
+    useParentButton.type = 'button';
+    useParentButton.className = 'workspace-use-parent';
+    useParentButton.textContent = t('workspace.useParent');
+    useParentButton.onclick = () => {
+      inputEl.value = normalizePathInput(data.suggest);
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.classList.remove('input-error');
+      barEl.replaceChildren();
+      barEl.classList.remove('err');
+      barEl.hidden = true;
+      inputEl.focus();
+    };
+    barEl.appendChild(useParentButton);
+  }
+  if (pathRelated && inputEl) {
+    inputEl.classList.add('input-error');
+    inputEl.focus();
+  }
+}
+
 async function openFolderPicker(targetInputEl) {
   if (!targetInputEl) return;
   if (appBootActiveModalClose) appBootActiveModalClose();
@@ -259,27 +308,45 @@ async function openFolderPicker(targetInputEl) {
   document.body.appendChild(overlay);
   cancelButton.focus();
 
-  const loadFolder = async (requestedPath, retainedError = '') => {
+  const renderPickerError = problem => {
+    error.replaceChildren();
+    const message = typeof problem === 'string' ? problem : String(problem?.error ?? '');
+    if (!message) return;
+    const text = document.createElement('span');
+    text.textContent = message;
+    error.appendChild(text);
+    if (problem && typeof problem === 'object' && problem.suggest) {
+      const useParentButton = document.createElement('button');
+      useParentButton.type = 'button';
+      useParentButton.className = 'workspace-use-parent';
+      useParentButton.textContent = t('workspace.useParent');
+      useParentButton.onclick = () => loadFolder(problem.suggest);
+      error.appendChild(useParentButton);
+    }
+  };
+
+  const loadFolder = async (requestedPath, retainedError = null) => {
     status.textContent = t('folder.loading');
-    error.textContent = retainedError;
+    renderPickerError(retainedError);
     list.setAttribute('aria-busy', 'true');
     upButton.disabled = true;
     pickButton.disabled = true;
     let result;
     try {
-      const response = await fetch('/api/browse?path=' + encodeURIComponent(requestedPath || ''));
+      const response = await fetch('/api/browse?path=' + encodeURIComponent(requestedPath || '') + '&lang=' + encodeURIComponent(LANG));
       result = await response.json();
     } catch (e) {
       result = { error: e.message };
     }
     if (!result.ok) {
       const message = result.error || t('browse.notDir');
+      const problem = { error: message, ...(result.suggest ? { suggest: result.suggest } : {}) };
       status.textContent = '';
-      error.textContent = message;
+      renderPickerError(problem);
       list.setAttribute('aria-busy', 'false');
       upButton.disabled = !currentPath;
       pickButton.disabled = !currentPath;
-      if (!currentPath && requestedPath) return loadFolder('', message);
+      if (!currentPath && requestedPath) return loadFolder('', problem);
       return;
     }
     currentPath = result.path;
@@ -306,7 +373,7 @@ async function openFolderPicker(targetInputEl) {
       }
     }
     status.textContent = '';
-    error.textContent = retainedError;
+    renderPickerError(retainedError);
     list.setAttribute('aria-busy', 'false');
     upButton.disabled = false;
     pickButton.disabled = false;
@@ -319,7 +386,7 @@ async function openFolderPicker(targetInputEl) {
     targetInputEl.dispatchEvent(new Event('input', { bubbles: true }));
     closePicker();
   };
-  await loadFolder(targetInputEl.value.trim());
+  await loadFolder(normalizePathInput(targetInputEl.value));
 }
 
 async function openAgentConfig() {
@@ -444,23 +511,4 @@ async function openAgentConfig() {
   };
 }
 
-function bindMeetingWorkspaceErrorHighlight() {
-  const input = $('#workspace');
-  const start = $('#start');
-  if (!input || !start || start.dataset.workspaceErrorBound) return;
-  start.dataset.workspaceErrorBound = 'true';
-  input.addEventListener('input', () => input.classList.remove('input-error'));
-  const originalHandler = start.onclick;
-  start.onclick = async function (...args) {
-    const result = await originalHandler.apply(this, args);
-    const message = $('#setupbar')?.textContent ?? '';
-    if (/项目目录(?:不存在|必须是文件夹)|Project directory (?:does not exist|must be a folder)/i.test(message)) {
-      input.classList.add('input-error');
-      input.focus();
-    }
-    return result;
-  };
-}
-
-bindMeetingWorkspaceErrorHighlight();
 boot();

@@ -105,6 +105,15 @@ button.primary:active { transform: translateY(1px); }
 button.accent-outline { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 button:disabled { opacity: 0.55; cursor: default; }
 
+.workspace-use-parent {
+  margin-inline-start: 8px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: inherit;
+  border-color: currentColor;
+  background: transparent;
+}
+
 /* ============ 建会话页 ============ */
 #setup {
   width: 100%; max-width: 880px; margin: 32px auto; display: grid; gap: 14px; padding: 0 20px;

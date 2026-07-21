@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { startServer } from '../src/server.js';
+import { normalizeFsPath, startServer } from '../src/server.js';
 
 // 用 mock adapter 配置与临时 sessions 目录启动真实服务
 const sessionsDir = mkdtempSync(path.join(tmpdir(), 'rt-srv-'));
@@ -18,6 +18,15 @@ const BASE = `http://127.0.0.1:${srv.port}`;
 after(() => srv.close());
 
 const agentsFixtureOriginal = readFileSync('test/agents.fixture.json', 'utf8');
+
+test('normalizeFsPath 去除配对引号与首尾空白', () => {
+  assert.equal(normalizeFsPath('"C:\\x"'), 'C:\\x');
+  assert.equal(normalizeFsPath("'C:\\x'"), 'C:\\x');
+  assert.equal(normalizeFsPath('  C:\\x  '), 'C:\\x');
+  assert.equal(normalizeFsPath('C:\\x'), 'C:\\x');
+  assert.equal(normalizeFsPath(null), '');
+  assert.equal(normalizeFsPath(undefined), '');
+});
 
 test('GET /api/config 返回 agents/bin 与 templates，且不泄漏 command/envWhitelist', async () => {
   const r = await (await fetch(BASE + '/api/config')).json();
@@ -47,6 +56,12 @@ test('GET /api/browse 默认浏览 home；文件路径与不存在路径返回 2
   const missing = await fetch(BASE + '/api/browse?path=' + encodeURIComponent(path.join(sessionsDir, 'no-such-folder')));
   assert.equal(missing.status, 200);
   assert.equal(typeof (await missing.json()).error, 'string');
+});
+
+test('GET /api/browse 接受带引号的合法目录路径', async () => {
+  const result = await (await fetch(BASE + '/api/browse?path=' + encodeURIComponent('"' + sessionsDir + '"'))).json();
+  assert.equal(result.ok, true);
+  assert.equal(result.path, path.resolve(sessionsDir));
 });
 
 test('agents raw：读取原文、拒绝非法配置、保存后热重载公开配置', async () => {
@@ -305,25 +320,47 @@ test('deriveSessionAgents：挂载工作区时切换 cwd 与只读工具集', as
   assert.equal(base.claude.cwd, 'workdir'); // 派生是深拷贝，不污染全局配置
 });
 
+test('POST /api/sessions 接受带引号的合法工作区并存储规范化路径', async () => {
+  const response = await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: '带引号工作区', materials: '', template: 'general', workspace: '"' + sessionsDir + '"', origin: 'quoted-workspace-test', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' } }),
+  });
+  assert.equal(response.status, 200);
+  const created = await response.json();
+  assert.ok(created.id);
+  try {
+    const detail = await (await fetch(BASE + '/api/sessions/' + created.id)).json();
+    const metadata = JSON.parse(readFileSync(path.join(detail.dir, 'metadata.json'), 'utf8'));
+    assert.equal(metadata.workspace, sessionsDir);
+  } finally {
+    await fetch(BASE + '/api/sessions/' + created.id, { method: 'DELETE' });
+  }
+});
+
 test('挂载不存在的工作区目录返回 400', async () => {
   const r = await fetch(BASE + '/api/sessions', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ topic: 'ws测试', materials: '', template: 'general', workspace: 'C:/definitely/not/exist/xyz', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' } }),
   });
   assert.equal(r.status, 400);
+  const payload = await r.json();
+  assert.match(payload.error, /找不到这个路径/);
 });
 
 test('挂载文件作为工作区返回 400，并明确要求文件夹', async () => {
+  const filePath = path.resolve('test/agents.fixture.json');
   const r = await fetch(BASE + '/api/sessions', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       topic: 'ws 文件校验', materials: '', template: 'general',
-      workspace: path.resolve('test/agents.fixture.json'), lang: 'zh',
+      workspace: filePath, lang: 'zh',
       roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' },
     }),
   });
   assert.equal(r.status, 400);
-  assert.match((await r.json()).error, /文件|folder/i);
+  const payload = await r.json();
+  assert.match(payload.error, /文件|file/i);
+  assert.equal(payload.suggest, path.dirname(filePath));
 });
 
 // ---- 会话跨重启恢复 ----

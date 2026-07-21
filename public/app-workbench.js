@@ -548,18 +548,6 @@ function appendWbError(text) {
   $('#wbLog').scrollTop = $('#wbLog').scrollHeight;
 }
 
-function markWbWorkspaceInputError(message) {
-  const input = $('#wbWorkspace');
-  if (!input.dataset.workspaceErrorBound) {
-    input.dataset.workspaceErrorBound = 'true';
-    input.addEventListener('input', () => input.classList.remove('input-error'));
-  }
-  if (/项目目录(?:不存在|必须是文件夹)|Project directory (?:does not exist|must be a folder)/i.test(message)) {
-    input.classList.add('input-error');
-    input.focus();
-  }
-}
-
 function ensureLiveBox(agentName) {
   if (wbLiveBox) return wbLiveBox.querySelector('pre');
   wbLiveBox = document.createElement('div');
@@ -939,7 +927,7 @@ async function sendWbMessage() {
 $('#wbCreate').onclick = async () => {
   const participants = [...$('#wbParticipants').querySelectorAll('input:checked:not(.wb-arbiter)')].map(cb => cb.value); // 仲裁勾选框不是参与勾选
   const bar = $('#wbSetupBar');
-  const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); markWbWorkspaceInputError(msg); };
+  const err = msg => { bar.hidden = false; bar.textContent = msg; bar.classList.add('err'); };
   if (!participants.length) return err(t('dyn.pickParticipant'));
   // 入场即定角色：能力下拉 + 仲裁叠加勾选（无控件=纯讨论者,由后端默认处理）
   const roles = {};
@@ -952,7 +940,7 @@ $('#wbCreate').onclick = async () => {
   let r;
   try { r = await (await fetch('/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: $('#wbName').value.trim(), workspace: $('#wbWorkspace').value.trim(), participants, roles, lang: LANG }) })).json(); }
   catch (e) { return err(t('dyn.createFail', { msg: e.message })); }
-  if (r.error) return err(r.error);
+  if (r.error) return showWorkspaceError(bar, $('#wbWorkspace'), r);
   await attachWorkbench(r.id);
 };
 $('#wbSend').onclick = sendWbMessage;

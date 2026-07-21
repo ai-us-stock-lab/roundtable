@@ -22,17 +22,33 @@ const STATIC = {
   '/app-boot.js': ['public/app-boot.js', 'text/javascript'],
 };
 
+// 用户常直接粘贴 Windows「复制文件地址」的结果(首尾带引号),或带首尾空白。
+// 统一在入口处剥掉,避免出现「路径不存在」这种误导性报错。
+export function normalizeFsPath(raw) {
+  let s = String(raw ?? '').trim();
+  if (s.length >= 2 && ((s[0] === '"' && s.at(-1) === '"') || (s[0] === "'" && s.at(-1) === "'"))) s = s.slice(1, -1).trim();
+  return s;
+}
+
 const isDir = p => {
   try { return existsSync(p) && statSync(p).isDirectory(); }
   catch { return false; }
 };
 
 const workspacePathError = (workspace, lang = 'zh') => {
-  if (!workspace || isDir(workspace)) return '';
-  if (!existsSync(workspace)) return (lang === 'en' ? 'Project directory does not exist: ' : '项目目录不存在: ') + workspace;
-  return (lang === 'en'
-    ? 'Project directory must be a folder (this path is a file): '
-    : '项目目录必须是文件夹(该路径是一个文件): ') + workspace;
+  if (!workspace || isDir(workspace)) return null;
+  if (!existsSync(workspace)) return {
+    error: lang === 'en'
+      ? 'Path not found: ' + workspace + '. Check the spelling, or click "Browse…" to pick a folder.'
+      : '找不到这个路径：' + workspace + '。请检查是否输入正确，或点「浏览…」直接选择文件夹',
+  };
+  const parent = path.dirname(workspace);
+  return {
+    error: lang === 'en'
+      ? 'This is a file, not a folder: ' + workspace + '. Use the folder that contains it instead.'
+      : '这是一个文件，不是文件夹：' + workspace + '。请改用它所在的文件夹',
+    ...(isDir(parent) ? { suggest: parent } : {}),
+  };
 };
 
 // 按会话派生 agent 配置：挂载工作区（项目目录只读访问）时，cwd 指向项目根，
@@ -258,12 +274,14 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         } catch { return json(res, 404, { error: 'not found' }); }
       }
       if (url.pathname === '/api/browse' && req.method === 'GET') {
-        const requestedPath = String(url.searchParams.get('path') ?? '').trim();
+        const requestedPath = normalizeFsPath(url.searchParams.get('path'));
         const browsePath = path.resolve(requestedPath || homedir());
-        if (!isDir(browsePath)) return json(res, 200, { error: '不是有效的文件夹' });
+        const browseLang = url.searchParams.get('lang') === 'en' ? 'en' : 'zh';
+        const browsePathError = workspacePathError(browsePath, browseLang);
+        if (browsePathError) return json(res, 200, browsePathError);
         let names;
         try { names = await readdir(browsePath); }
-        catch { return json(res, 200, { error: '不是有效的文件夹' }); }
+        catch { return json(res, 200, { error: browseLang === 'en' ? 'Not a valid folder' : '不是有效的文件夹' }); }
         const dirs = [];
         for (const name of names) {
           try {
@@ -385,9 +403,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
         // 工作区挂载：参会 AI 以该目录为只读工作目录，可自行查阅项目文件
         const lang = body.lang === 'en' ? 'en' : 'zh'; // 会话语言：建会时定死，存 metadata，提示词链路按此选中英文
-        const workspace = String(body.workspace ?? '').trim();
+        const workspace = normalizeFsPath(body.workspace);
         const workspaceError = workspacePathError(workspace, lang);
-        if (workspaceError) return json(res, 400, { error: workspaceError });
+        if (workspaceError) return json(res, 400, workspaceError);
         let materials = body.materials ?? '';
         if (workspace) materials += lang === 'en'
           ? "\n\n---\nParticipant note: your working directory is the project root (read-only). Before speaking, check the key files yourself to verify the brief's claims; cite facts as plain-text \"relative/path:line\" (e.g. src/server.js:123) — no absolute paths, no markdown link syntax (your statements render as plain text, links just become screen-filling noise)."
@@ -429,6 +447,7 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           baseDir: sessionsDir, lang,
           emit: ev => entry.emit(ev),
         });
+        committee.workspace = workspace;
         entry.committee = committee;
         attachAutoVerdictFlow(entry); // 裁决卡产出即自动落回来源工作台（统一容器第一期）
         await committee.init();
@@ -566,9 +585,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (agents[id].unavailable) return json(res, 400, { error: `${agents[id].name} 当前不可用: ${agents[id].unavailable}` });
         }
         const wbLang = body.lang === 'en' ? 'en' : 'zh';
-        const wbWorkspace = String(body.workspace ?? '').trim();
+        const wbWorkspace = normalizeFsPath(body.workspace);
         const workspaceError = workspacePathError(wbWorkspace, wbLang);
-        if (workspaceError) return json(res, 400, { error: workspaceError });
+        if (workspaceError) return json(res, 400, workspaceError);
         const entry = newBenchEntry();
         const bench = new Workbench({
           name: String(body.name ?? '').trim(),
@@ -687,9 +706,9 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         }
         if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }
         if (action === 'workspace') {
-          const workspacePath = String(body.path ?? '').trim();
+          const workspacePath = normalizeFsPath(body.path);
           const workspaceError = workspacePathError(workspacePath, b.lang === 'en' ? 'en' : 'zh');
-          if (workspaceError) return json(res, 400, { error: workspaceError });
+          if (workspaceError) return json(res, 400, workspaceError);
           if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
           await b.setWorkspace(
             workspacePath,
