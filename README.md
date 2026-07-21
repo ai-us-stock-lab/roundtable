@@ -6,6 +6,8 @@
 
 [▶ Watch the 67s English walkthrough](docs/demo-en.mp4) · [中文解说版](docs/demo.mp4)
 
+[Get the stable v0.3.0 release](https://github.com/ai-us-stock-lab/roundtable/releases/tag/v0.3.0) · [Test it on a real decision and report what happened](https://github.com/ai-us-stock-lab/roundtable/issues/1)
+
 > Rides your own CLI subscriptions (Claude Code / Codex / …) — zero marginal API cost, zero dependencies, all local. The UI ships in **English and 中文** (toggle in the top-left).
 >
 > And because each participant is your **full CLI agent — not a bare model over an API** — they bring everything you've taught them: your installed skills auto-trigger when relevant, your memory files and global instructions apply, and (with a mounted project) they read real files instead of debating from imagination. An API-based council gets stock models; Roundtable convenes the agents you've already customized.
@@ -49,6 +51,7 @@ Node.js ≥ 20 (`node -v`). Zero dependencies — **no `npm install`**:
 ```sh
 git clone https://github.com/ai-us-stock-lab/roundtable
 cd roundtable
+git checkout v0.3.0 # fixed public test build
 npm start        # opens http://127.0.0.1:7777
 ```
 
@@ -174,6 +177,7 @@ Claude Code 说 A，Codex 说 B——听谁的？会议模式不让它们各说�
 ```sh
 git clone https://github.com/ai-us-stock-lab/roundtable
 cd roundtable
+git checkout v0.3.0 # 固定的公开测试版本
 npm start        # 浏览器打开 http://127.0.0.1:7777
 ```
 
