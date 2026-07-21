@@ -261,6 +261,26 @@ async function pickFolderFor(inputEl) {
     button.setAttribute('aria-busy', 'true');
     button.textContent = t('folder.opening');
   }
+  // 逃生口：系统对话框偶尔拿不到前台焦点（藏在浏览器窗口后面），用户会以为卡死。
+  // 等 6 秒仍未返回就给一枚「取消，改用内置选择器」，点它终结子进程并降级。
+  let escapeBtn = null;
+  const escapeTimer = setTimeout(() => {
+    if (!button || escapeBtn) return;
+    escapeBtn = document.createElement('button');
+    escapeBtn.type = 'button';
+    escapeBtn.className = 'browse-escape';
+    escapeBtn.textContent = t('folder.escape');
+    escapeBtn.title = t('folder.escapeTip');
+    escapeBtn.onclick = async () => {
+      escapeBtn.disabled = true;
+      try { await fetch('/api/pick-folder/cancel', { method: 'POST' }); } catch { /* 服务不可达也照样降级 */ }
+      escapeBtn.remove();
+      escapeBtn = null;
+      await openFolderPicker(inputEl, true);
+    };
+    button.insertAdjacentElement('afterend', escapeBtn);
+  }, 6000);
+  const clearEscape = () => { clearTimeout(escapeTimer); escapeBtn?.remove(); escapeBtn = null; };
   try {
     let response;
     let result;
@@ -292,6 +312,7 @@ async function pickFolderFor(inputEl) {
     }
     showWorkspaceError(errorBar, inputEl, result.error || t('browse.notDir'));
   } finally {
+    clearEscape();
     if (button) {
       button.disabled = false;
       button.removeAttribute('aria-busy');

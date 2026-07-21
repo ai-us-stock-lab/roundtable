@@ -823,3 +823,4 @@ button.wb-ws:disabled { opacity: .62; cursor: not-allowed; }
 }
 .folder-picker input.folder-picker-path:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .folder-picker-item { display: flex; align-items: center; border-radius: var(--r-ctl); }
+.browse-escape { margin-inline-start: 8px; font-size: 12px; padding: 3px 8px; border-color: var(--err); color: var(--err); background: transparent; }

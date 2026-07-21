@@ -25,10 +25,23 @@ const STATIC = {
 };
 
 let pickInFlight = false;
+let pickChild = null; // 当前原生对话框子进程；取消端点据此终结它并放开 pickInFlight
 
+// 顶置宿主窗口是必需的：服务以后台隐藏进程运行，它拉起的 GUI 拿不到前台焦点，
+// 对话框会藏到浏览器窗口后面——用户只看到按钮卡在「正在打开系统对话框…」（实测故障）。
+// 用一个 TopMost 的隐形 Form 作 owner 并 Activate，把对话框强制拉到最前。
 const WINDOWS_FOLDER_PICKER_SCRIPT = `$ErrorActionPreference = 'Stop'
+$owner = $null
 try {
   Add-Type -AssemblyName System.Windows.Forms | Out-Null
+  $owner = New-Object System.Windows.Forms.Form
+  $owner.TopMost = $true
+  $owner.ShowInTaskbar = $false
+  $owner.FormBorderStyle = 'None'
+  $owner.Opacity = 0
+  $owner.StartPosition = 'CenterScreen'
+  $owner.Show()
+  $owner.Activate()
   $dlg = New-Object System.Windows.Forms.OpenFileDialog
   $dlg.Title = $env:RT_PICK_TITLE
   $dlg.ValidateNames = $false
@@ -36,7 +49,7 @@ try {
   $dlg.CheckPathExists = $true
   $dlg.FileName = $env:RT_PICK_PLACEHOLDER
   if ($env:RT_PICK_START -and (Test-Path -LiteralPath $env:RT_PICK_START)) { $dlg.InitialDirectory = $env:RT_PICK_START }
-  if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  if ($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
     $p = Split-Path -LiteralPath $dlg.FileName -Parent
     if ($p) { Write-Output $p; exit 0 }
   }
@@ -45,7 +58,8 @@ try {
   try {
     $fb = New-Object System.Windows.Forms.FolderBrowserDialog
     if ($env:RT_PICK_START) { $fb.SelectedPath = $env:RT_PICK_START }
-    if ($fb.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $fb.SelectedPath; exit 0 }
+    if ($owner) { $r = $fb.ShowDialog($owner) } else { $r = $fb.ShowDialog() }
+    if ($r -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $fb.SelectedPath; exit 0 }
     exit 2
   } catch { exit 3 }
 }
@@ -61,10 +75,12 @@ const runFolderDialogProcess = (command, args, options = {}) => new Promise(reso
     if (settled) return;
     settled = true;
     clearTimeout(timer);
+    if (pickChild === child) pickChild = null;
     resolve({ stdout, timedOut, ...result });
   };
   try {
     child = spawn(command, args, options);
+    pickChild = child; // 供 /api/pick-folder/cancel 终结：对话框万一没能到前台，用户可自救
   } catch (error) {
     resolve({ stdout, timedOut, spawnError: error });
     return;
@@ -330,6 +346,15 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           res.writeHead(200, { 'content-type': type + '; charset=utf-8', 'cache-control': 'no-cache' });
           return res.end(data);
         } catch { return json(res, 404, { error: 'not found' }); }
+      }
+      // 自救通道：对话框若没能到前台（后台进程的 GUI 可能被前台锁挡住），
+      // 用户可从界面取消，终结子进程并放开 pickInFlight，无需重启服务。
+      if (url.pathname === '/api/pick-folder/cancel' && req.method === 'POST') {
+        const had = !!pickChild;
+        try { pickChild?.kill(); } catch { /* 已退出 */ }
+        pickChild = null;
+        pickInFlight = false; // 兜底：即便子进程已消失也放开锁
+        return json(res, 200, { ok: true, killed: had });
       }
       if (url.pathname === '/api/pick-folder' && req.method === 'POST') {
         const body = await readBody(req);

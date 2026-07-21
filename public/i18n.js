@@ -266,6 +266,8 @@ const I18N = {
   'folder.opening': { zh: '正在打开系统对话框…', en: 'Opening system dialog…' },
   'folder.fallbackNote': { zh: '系统对话框不可用，这里是内置选择器', en: 'System dialog unavailable — using the built-in picker' },
   'folder.pathHint': { zh: '可直接粘贴路径后回车', en: 'Paste a path and press Enter' },
+  'folder.escape': { zh: '取消，改用内置选择器', en: 'Cancel — use built-in picker' },
+  'folder.escapeTip': { zh: '系统对话框可能被挡在其他窗口后面（可先在任务栏找找）；点此终结它并改用内置选择器', en: 'The system dialog may be hidden behind other windows (check the taskbar); click to close it and switch to the built-in picker' },
   'folder.busy': { zh: '已有一个选择窗口打开', en: 'A folder dialog is already open' },
 };
 
