@@ -25,6 +25,7 @@
       <textarea id="topic" data-i18n-ph="setup.topicPh" placeholder="议题：要决策什么？"></textarea>
       <textarea id="materials" data-i18n-ph="setup.materialsPh" placeholder="背景材料（可选）"></textarea>
       <input id="workspace" data-i18n-ph="setup.workspacePh" placeholder="项目目录（可选，绝对路径——参会 AI 将可只读查阅该目录下的文件）">
+      <button class="browse-btn" type="button" data-target="workspace" data-i18n="setup.browse">浏览…</button>
       <div id="lineup">
         <label><span data-i18n="setup.template">模板</span> <select id="tpl"></select></label>
         <label><span data-i18n="setup.debaterA">辩手 A</span> <select id="debA"></select></label>
@@ -102,6 +103,7 @@
       <div id="wbAgentStatus" class="agent-status"></div>
       <input id="wbName" data-i18n-ph="wbSetup.namePh" placeholder="给这个工作台起个名（可选）">
       <input id="wbWorkspace" data-i18n-ph="wbSetup.workspacePh" placeholder="项目目录（可选，绝对路径——聊天时模型可只读查阅；是 git 仓库则可让模型「动手」改文件）">
+      <button class="browse-btn" type="button" data-target="wbWorkspace" data-i18n="setup.browse">浏览…</button>
       <div id="wbParticipants"></div>
       <button id="wbCreate" class="primary" data-i18n="wbSetup.create">开聊</button>
       <button id="newSessionBtn" class="linklike" data-i18n="wbSetup.advancedMeeting" data-i18n-title="wbSetup.advancedMeetingTitle" title="不经工作台直接开一场正式会议（一般建议先聊，聊到分歧再「就此开会」）">直接开一场独立会议 →</button>

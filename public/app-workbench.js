@@ -554,7 +554,7 @@ function markWbWorkspaceInputError(message) {
     input.dataset.workspaceErrorBound = 'true';
     input.addEventListener('input', () => input.classList.remove('input-error'));
   }
-  if (/项目目录不存在|directory does not exist/i.test(message)) {
+  if (/项目目录(?:不存在|必须是文件夹)|Project directory (?:does not exist|must be a folder)/i.test(message)) {
     input.classList.add('input-error');
     input.focus();
   }

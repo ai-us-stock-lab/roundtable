@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { readFile, writeFile, readdir, rm, rename, mkdir, stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { Committee } from './orchestrator.js';
 import { Workbench, loadWorkbenchFromDisk } from './workbench.js';
@@ -19,6 +20,19 @@ const STATIC = {
   '/app-workbench.js': ['public/app-workbench.js', 'text/javascript'],
   '/app-sidebar.js': ['public/app-sidebar.js', 'text/javascript'],
   '/app-boot.js': ['public/app-boot.js', 'text/javascript'],
+};
+
+const isDir = p => {
+  try { return existsSync(p) && statSync(p).isDirectory(); }
+  catch { return false; }
+};
+
+const workspacePathError = (workspace, lang = 'zh') => {
+  if (!workspace || isDir(workspace)) return '';
+  if (!existsSync(workspace)) return (lang === 'en' ? 'Project directory does not exist: ' : '项目目录不存在: ') + workspace;
+  return (lang === 'en'
+    ? 'Project directory must be a folder (this path is a file): '
+    : '项目目录必须是文件夹(该路径是一个文件): ') + workspace;
 };
 
 // 按会话派生 agent 配置：挂载工作区（项目目录只读访问）时，cwd 指向项目根，
@@ -66,22 +80,34 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
     return false;
   };
   const agents = JSON.parse(await readFile(agentsFile, 'utf8'));
-  // 启动时解析每个 agent 的 CLI 路径；解析失败不阻塞服务启动，只标记该 agent 不可用
-  for (const [id, a] of Object.entries(agents)) {
-    try {
-      if (a.disabled) throw new Error(a.disabled); // 手工禁用（已知运行时必失败的 agent，修好后删 disabled 字段即恢复）
-      a.command[0] = resolveCliPath(a);
-      console.log(`[adapter] ${id} -> ${a.command[0]}`);
-    } catch (e) {
-      a.unavailable = String(e.message);
-      console.warn(`[adapter] ${id} 不可用: ${e.message}`);
+  // 启动与热重载共用同一加载路径：解析失败不阻塞服务，只标记该 agent 不可用。
+  const loadAgents = configuredAgents => {
+    for (const [id, a] of Object.entries(configuredAgents)) {
+      delete a.unavailable;
+      try {
+        if (a.disabled) throw new Error(a.disabled); // 手工禁用（已知运行时必失败的 agent，修好后删 disabled 字段即恢复）
+        a.command[0] = resolveCliPath(a);
+        console.log(`[adapter] ${id} -> ${a.command[0]}`);
+      } catch (e) {
+        a.unavailable = String(e.message);
+        console.warn(`[adapter] ${id} 不可用: ${e.message}`);
+      }
     }
-  }
+  };
+  loadAgents(agents);
   const templates = await loadTemplates(templatesDir);
   // 就绪检查（状态灯）：启动时的路径解析只能发现「找不到 CLI」，auth 过期等运行时故障
   // 要真调用一次才暴露。结果存内存（重启清零），随 /api/config 下发供前端亮灯。
   const smokeStatus = {}; // agentId -> { ok, error?, durationMs, ts }
   const smokeInflight = new Set();
+  const publicAgents = () => Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, {
+    name: a.name,
+    roles: Array.isArray(a.roles) ? a.roles : [],
+    write: !!a.writeArgs,
+    bin: a.command?.[0] ?? '',
+    ...(a.unavailable ? { unavailable: a.unavailable } : {}),
+    ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}),
+  }]));
   const sessions = new Map();
   const benches = new Map(); // 工作台会话（与委员会平行的顶层类型）：{ bench, events, clients, updatedAt }
   const drafts = new Map(); // 外部 AI（项目对话侧）预填的议题+简报草稿，浏览器 #draft=<id> 打开即填入表单
@@ -231,16 +257,64 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           return res.end(data);
         } catch { return json(res, 404, { error: 'not found' }); }
       }
+      if (url.pathname === '/api/browse' && req.method === 'GET') {
+        const requestedPath = String(url.searchParams.get('path') ?? '').trim();
+        const browsePath = path.resolve(requestedPath || homedir());
+        if (!isDir(browsePath)) return json(res, 200, { error: '不是有效的文件夹' });
+        let names;
+        try { names = await readdir(browsePath); }
+        catch { return json(res, 200, { error: '不是有效的文件夹' }); }
+        const dirs = [];
+        for (const name of names) {
+          try {
+            if (statSync(path.join(browsePath, name)).isDirectory()) dirs.push(name);
+          } catch { /* 无权限或条目已消失：跳过 */ }
+        }
+        dirs.sort((a, b) => a.localeCompare(b));
+        return json(res, 200, {
+          ok: true,
+          path: browsePath,
+          parent: path.dirname(browsePath),
+          dirs: dirs.slice(0, 500),
+        });
+      }
+      if (url.pathname === '/api/agents/raw' && req.method === 'GET') {
+        try { return json(res, 200, { ok: true, content: await readFile(agentsFile, 'utf8') }); }
+        catch (e) { return json(res, 200, { error: String(e.message ?? e) }); }
+      }
+      if (url.pathname === '/api/agents/raw' && req.method === 'POST') {
+        const body = await readBody(req);
+        const content = typeof body.content === 'string' ? body.content : '';
+        let nextAgents;
+        try { nextAgents = JSON.parse(content); }
+        catch (e) { return json(res, 400, { error: 'JSON 解析失败: ' + String(e.message ?? e) }); }
+        if (!nextAgents || typeof nextAgents !== 'object' || Array.isArray(nextAgents)) {
+          return json(res, 400, { error: '配置无效：顶层必须是对象' });
+        }
+        for (const [key, a] of Object.entries(nextAgents)) {
+          const valid = a && typeof a === 'object' && !Array.isArray(a)
+            && typeof a.name === 'string' && !!a.name.trim()
+            && Array.isArray(a.command) && a.command.length > 0
+            && a.command.every(part => typeof part === 'string') && !!a.command[0].trim();
+          if (!valid) return json(res, 400, { error: `agent「${key}」配置无效：需要 name 与非空 command 数组` });
+        }
+        await writeFile(agentsFile, content, 'utf8');
+        const reloadedAgents = JSON.parse(content);
+        for (const key of Object.keys(agents)) delete agents[key];
+        Object.assign(agents, reloadedAgents);
+        loadAgents(agents);
+        for (const key of Object.keys(smokeStatus)) if (!agents[key]) delete smokeStatus[key];
+        return json(res, 200, { ok: true, agents: publicAgents() });
+      }
       if (url.pathname === '/api/config') {
         // 只额外暴露诊断所需的可执行路径，不泄漏 command 参数、envWhitelist 等 adapter 细节
-        const pub = Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, { name: a.name, roles: a.roles, write: !!a.writeArgs, bin: a.command?.[0] ?? '', ...(a.unavailable ? { unavailable: a.unavailable } : {}), ...(smokeStatus[id] ? { smoke: smokeStatus[id] } : {}) }]));
         const tpl = Object.fromEntries(Object.entries(templates).map(([n, t]) => [n, {
           title: t.title,
           debaterFormat: t.debaterFormat,
           judgeFormat: t.judgeFormat,
           roleBriefs: t.roleBriefs,
         }]));
-        return json(res, 200, { agents: pub, templates: tpl, stale: await backendStale() });
+        return json(res, 200, { agents: publicAgents(), templates: tpl, stale: await backendStale() });
       }
       if (url.pathname === '/api/sessions' && req.method === 'GET') {
         const activeDirs = new Set([
@@ -310,9 +384,10 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         for (const id of [...(body.roles?.debaters ?? []), body.roles?.judge, body.roles?.summarizer])
           if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
         // 工作区挂载：参会 AI 以该目录为只读工作目录，可自行查阅项目文件
-        const workspace = String(body.workspace ?? '').trim();
-        if (workspace && !existsSync(workspace)) return json(res, 400, { error: '项目目录不存在: ' + workspace });
         const lang = body.lang === 'en' ? 'en' : 'zh'; // 会话语言：建会时定死，存 metadata，提示词链路按此选中英文
+        const workspace = String(body.workspace ?? '').trim();
+        const workspaceError = workspacePathError(workspace, lang);
+        if (workspaceError) return json(res, 400, { error: workspaceError });
         let materials = body.materials ?? '';
         if (workspace) materials += lang === 'en'
           ? "\n\n---\nParticipant note: your working directory is the project root (read-only). Before speaking, check the key files yourself to verify the brief's claims; cite facts as plain-text \"relative/path:line\" (e.g. src/server.js:123) — no absolute paths, no markdown link syntax (your statements render as plain text, links just become screen-filling noise)."
@@ -490,15 +565,17 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
           if (!agents[id]) return json(res, 400, { error: '未知 agent: ' + id });
           if (agents[id].unavailable) return json(res, 400, { error: `${agents[id].name} 当前不可用: ${agents[id].unavailable}` });
         }
+        const wbLang = body.lang === 'en' ? 'en' : 'zh';
         const wbWorkspace = String(body.workspace ?? '').trim();
-        if (wbWorkspace && !existsSync(wbWorkspace)) return json(res, 400, { error: '项目目录不存在: ' + wbWorkspace });
+        const workspaceError = workspacePathError(wbWorkspace, wbLang);
+        if (workspaceError) return json(res, 400, { error: workspaceError });
         const entry = newBenchEntry();
         const bench = new Workbench({
           name: String(body.name ?? '').trim(),
           agents: deriveSessionAgents(agents, participants, wbWorkspace), // 挂了目录则聊天也可只读查阅
           participants, baseDir: sessionsDir, emit: ev => entry.emit(ev),
           workspace: wbWorkspace, writeAgents: deriveWriteAgents(agents, participants),
-          lang: body.lang === 'en' ? 'en' : 'zh',
+          lang: wbLang,
         });
         await bench.init();
         // 建台时的角色分配（能力+仲裁叠加）：逐个校验，无效项按默认角色处理不阻塞建台
@@ -611,7 +688,8 @@ export async function startServer({ port = 7777, agentsFile = 'adapters/agents.j
         if (action === 'stop') { b.stop(); return json(res, 200, { ok: true }); }
         if (action === 'workspace') {
           const workspacePath = String(body.path ?? '').trim();
-          if (workspacePath && !existsSync(workspacePath)) return json(res, 400, { error: '项目目录不存在: ' + workspacePath });
+          const workspaceError = workspacePathError(workspacePath, b.lang === 'en' ? 'en' : 'zh');
+          if (workspaceError) return json(res, 400, { error: workspaceError });
           if (b.state === 'busy') return json(res, 409, { error: '上一条消息还在处理中' });
           await b.setWorkspace(
             workspacePath,

@@ -1,8 +1,8 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { startServer } from '../src/server.js';
 
@@ -17,6 +17,8 @@ const srv = await startServer({
 const BASE = `http://127.0.0.1:${srv.port}`;
 after(() => srv.close());
 
+const agentsFixtureOriginal = readFileSync('test/agents.fixture.json', 'utf8');
+
 test('GET /api/config 返回 agents/bin 与 templates，且不泄漏 command/envWhitelist', async () => {
   const r = await (await fetch(BASE + '/api/config')).json();
   assert.ok(r.agents.mockA);
@@ -29,6 +31,70 @@ test('GET /api/config 返回 agents/bin 与 templates，且不泄漏 command/env
   assert.ok(r.templates.general);
   assert.ok(r.templates.consult.roleBriefs.debaterA.zh);
   assert.equal(r.templates.general.roleBriefs, undefined);
+});
+
+test('GET /api/browse 默认浏览 home；文件路径与不存在路径返回 200 error', async () => {
+  const home = await (await fetch(BASE + '/api/browse')).json();
+  assert.equal(home.ok, true);
+  assert.equal(home.path, path.resolve(homedir()));
+  assert.equal(home.parent, path.dirname(path.resolve(homedir())));
+  assert.ok(Array.isArray(home.dirs));
+
+  const file = await fetch(BASE + '/api/browse?path=' + encodeURIComponent(path.resolve('test/agents.fixture.json')));
+  assert.equal(file.status, 200);
+  assert.equal(typeof (await file.json()).error, 'string');
+
+  const missing = await fetch(BASE + '/api/browse?path=' + encodeURIComponent(path.join(sessionsDir, 'no-such-folder')));
+  assert.equal(missing.status, 200);
+  assert.equal(typeof (await missing.json()).error, 'string');
+});
+
+test('agents raw：读取原文、拒绝非法配置、保存后热重载公开配置', async () => {
+  const rawDir = mkdtempSync(path.join(tmpdir(), 'rt-agents-raw-'));
+  const rawAgentsFile = path.join(rawDir, 'agents.json');
+  writeFileSync(rawAgentsFile, agentsFixtureOriginal, 'utf8');
+  const rawSrv = await startServer({
+    port: 0,
+    agentsFile: rawAgentsFile,
+    templatesDir: 'templates',
+    sessionsDir: path.join(rawDir, 'sessions'),
+  });
+  const rawBase = `http://127.0.0.1:${rawSrv.port}`;
+  try {
+    const got = await (await fetch(rawBase + '/api/agents/raw')).json();
+    assert.equal(got.ok, true);
+    assert.match(got.content, /"mockA"/);
+
+    const invalidJson = await fetch(rawBase + '/api/agents/raw', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: '{' }),
+    });
+    assert.equal(invalidJson.status, 400);
+    assert.match((await invalidJson.json()).error, /JSON 解析失败/);
+
+    const missingCommand = await fetch(rawBase + '/api/agents/raw', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: JSON.stringify({ bad: { name: 'Bad' } }) }),
+    });
+    assert.equal(missingCommand.status, 400);
+    assert.match((await missingCommand.json()).error, /agent「bad」配置无效/);
+
+    const changed = JSON.parse(agentsFixtureOriginal);
+    changed.mockA.name = 'MockA Reloaded';
+    const saved = await fetch(rawBase + '/api/agents/raw', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: JSON.stringify(changed, null, 2) + '\n' }),
+    });
+    assert.equal(saved.status, 200);
+    const savedBody = await saved.json();
+    assert.equal(savedBody.ok, true);
+    assert.equal(savedBody.agents.mockA.name, 'MockA Reloaded');
+    assert.equal(savedBody.agents.mockA.command, undefined);
+    const config = await (await fetch(rawBase + '/api/config')).json();
+    assert.equal(config.agents.mockA.name, 'MockA Reloaded');
+  } finally {
+    rawSrv.close();
+    assert.equal(readFileSync('test/agents.fixture.json', 'utf8'), agentsFixtureOriginal);
+  }
 });
 
 test('agents smoke: 真实调用返回 ok 并缓存进 /api/config；未知 agent 404', async () => {
@@ -245,6 +311,19 @@ test('挂载不存在的工作区目录返回 400', async () => {
     body: JSON.stringify({ topic: 'ws测试', materials: '', template: 'general', workspace: 'C:/definitely/not/exist/xyz', roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' } }),
   });
   assert.equal(r.status, 400);
+});
+
+test('挂载文件作为工作区返回 400，并明确要求文件夹', async () => {
+  const r = await fetch(BASE + '/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      topic: 'ws 文件校验', materials: '', template: 'general',
+      workspace: path.resolve('test/agents.fixture.json'), lang: 'zh',
+      roles: { debaters: ['mockA', 'mockB'], judge: 'mockA', summarizer: 'mockA' },
+    }),
+  });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /文件|folder/i);
 });
 
 // ---- 会话跨重启恢复 ----

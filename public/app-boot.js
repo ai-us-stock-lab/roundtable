@@ -1,9 +1,11 @@
 // ===== 启动：填充引擎/模板下拉、刷新会话列表、装配 draft 预填；最后一个加载 =====
 
 let agentDiagnosticsOpen = { agentStatus: false, wbAgentStatus: false };
+let appBootActiveModalClose = null;
 
 async function boot() {
   applyI18n(); // 先按当前语言渲染所有静态文本（data-i18n 属性）
+  bindFolderBrowseButtons();
   try {
     cfg = await (await fetch('/api/config')).json();
   } catch (e) {
@@ -147,6 +149,12 @@ function renderAgentStatus() {
     btn.textContent = t('status.checkAll');
     btn.onclick = smokeAllAgents;
     el.appendChild(btn);
+    const configure = document.createElement('button');
+    configure.type = 'button';
+    configure.className = 'as-configure';
+    configure.textContent = t('agentcfg.open');
+    configure.onclick = openAgentConfig;
+    el.appendChild(configure);
     if (agentDiagnosticsOpen[el.id]) renderAgentDiagnostics(el);
   }
 }
@@ -172,6 +180,270 @@ async function smokeAllAgents() {
   for (const [id, a] of Object.entries(cfg.agents)) if (!a.unavailable) await smokeAgent(id);
 }
 
+function bindFolderBrowseButtons() {
+  document.querySelectorAll('.browse-btn[data-target]').forEach(button => {
+    if (button.dataset.folderPickerBound) return;
+    button.dataset.folderPickerBound = 'true';
+    button.onclick = () => {
+      const input = document.getElementById(button.dataset.target);
+      if (input) openFolderPicker(input);
+    };
+  });
+}
+
+async function openFolderPicker(targetInputEl) {
+  if (!targetInputEl) return;
+  if (appBootActiveModalClose) appBootActiveModalClose();
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.className = 'folder-picker-overlay';
+  const dialog = document.createElement('section');
+  dialog.className = 'folder-picker';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'folderPickerTitle');
+
+  const title = document.createElement('h2');
+  title.id = 'folderPickerTitle';
+  title.textContent = t('folder.title');
+  const pathText = document.createElement('code');
+  pathText.className = 'folder-picker-path';
+  const upButton = document.createElement('button');
+  upButton.type = 'button';
+  upButton.className = 'folder-picker-up';
+  upButton.textContent = t('folder.up');
+  const list = document.createElement('div');
+  list.className = 'folder-picker-list';
+  const status = document.createElement('div');
+  status.className = 'folder-picker-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const error = document.createElement('div');
+  error.className = 'folder-picker-error';
+  error.setAttribute('role', 'alert');
+  const actions = document.createElement('div');
+  actions.className = 'folder-picker-actions';
+  const pickButton = document.createElement('button');
+  pickButton.type = 'button';
+  pickButton.className = 'primary';
+  pickButton.textContent = t('folder.pick');
+  pickButton.disabled = true;
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.textContent = t('folder.cancel');
+  actions.append(pickButton, cancelButton);
+  dialog.append(title, pathText, upButton, list, status, error, actions);
+  overlay.appendChild(dialog);
+
+  let currentPath = '';
+  let parentPath = '';
+  const closePicker = () => {
+    window.removeEventListener('keydown', onPickerKeydown);
+    overlay.remove();
+    if (appBootActiveModalClose === closePicker) appBootActiveModalClose = null;
+    if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+  };
+  const onPickerKeydown = event => {
+    if (event.key === 'Escape') return closePicker();
+    if (event.key !== 'Tab') return;
+    const focusable = [...dialog.querySelectorAll('button:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  appBootActiveModalClose = closePicker;
+  window.addEventListener('keydown', onPickerKeydown);
+  overlay.onclick = event => { if (event.target === overlay) closePicker(); };
+  cancelButton.onclick = closePicker;
+  document.body.appendChild(overlay);
+  cancelButton.focus();
+
+  const loadFolder = async (requestedPath, retainedError = '') => {
+    status.textContent = t('folder.loading');
+    error.textContent = retainedError;
+    list.setAttribute('aria-busy', 'true');
+    upButton.disabled = true;
+    pickButton.disabled = true;
+    let result;
+    try {
+      const response = await fetch('/api/browse?path=' + encodeURIComponent(requestedPath || ''));
+      result = await response.json();
+    } catch (e) {
+      result = { error: e.message };
+    }
+    if (!result.ok) {
+      const message = result.error || t('browse.notDir');
+      status.textContent = '';
+      error.textContent = message;
+      list.setAttribute('aria-busy', 'false');
+      upButton.disabled = !currentPath;
+      pickButton.disabled = !currentPath;
+      if (!currentPath && requestedPath) return loadFolder('', message);
+      return;
+    }
+    currentPath = result.path;
+    parentPath = result.parent;
+    pathText.textContent = currentPath;
+    list.replaceChildren();
+    if (!result.dirs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'folder-picker-empty';
+      empty.textContent = t('folder.empty');
+      list.appendChild(empty);
+    } else {
+      for (const name of result.dirs) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'folder-picker-item';
+        item.textContent = name;
+        item.onclick = () => {
+          const separator = currentPath.includes('\\') ? '\\' : '/';
+          const childPath = currentPath.endsWith(separator) ? currentPath + name : currentPath + separator + name;
+          loadFolder(childPath);
+        };
+        list.appendChild(item);
+      }
+    }
+    status.textContent = '';
+    error.textContent = retainedError;
+    list.setAttribute('aria-busy', 'false');
+    upButton.disabled = false;
+    pickButton.disabled = false;
+  };
+
+  upButton.onclick = () => loadFolder(parentPath);
+  pickButton.onclick = () => {
+    if (!currentPath) return;
+    targetInputEl.value = currentPath;
+    targetInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    closePicker();
+  };
+  await loadFolder(targetInputEl.value.trim());
+}
+
+async function openAgentConfig() {
+  if (appBootActiveModalClose) appBootActiveModalClose();
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.className = 'agent-config-overlay';
+  const dialog = document.createElement('section');
+  dialog.className = 'agent-config';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'agentConfigTitle');
+  const title = document.createElement('h2');
+  title.id = 'agentConfigTitle';
+  title.textContent = t('agentcfg.title');
+  const hint = document.createElement('p');
+  hint.className = 'agent-config-hint';
+  hint.textContent = t('agentcfg.hint');
+  const textarea = document.createElement('textarea');
+  textarea.className = 'agent-config-editor';
+  textarea.setAttribute('aria-label', t('agentcfg.title'));
+  textarea.spellcheck = false;
+  textarea.disabled = true;
+  const message = document.createElement('div');
+  message.className = 'agent-config-message';
+  message.setAttribute('role', 'status');
+  message.setAttribute('aria-live', 'polite');
+  message.textContent = t('agentcfg.loading');
+  const actions = document.createElement('div');
+  actions.className = 'agent-config-actions';
+  const saveButton = document.createElement('button');
+  saveButton.type = 'button';
+  saveButton.className = 'primary';
+  saveButton.textContent = t('agentcfg.save');
+  saveButton.disabled = true;
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.textContent = t('agentcfg.cancel');
+  actions.append(saveButton, cancelButton);
+  dialog.append(title, hint, textarea, message, actions);
+  overlay.appendChild(dialog);
+
+  const closeConfig = () => {
+    window.removeEventListener('keydown', onConfigKeydown);
+    overlay.remove();
+    if (appBootActiveModalClose === closeConfig) appBootActiveModalClose = null;
+    const focusTarget = previousFocus?.isConnected ? previousFocus : document.querySelector('.as-configure');
+    if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
+  };
+  const onConfigKeydown = event => {
+    if (event.key === 'Escape') return closeConfig();
+    if (event.key !== 'Tab') return;
+    const focusable = [...dialog.querySelectorAll('button:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  appBootActiveModalClose = closeConfig;
+  window.addEventListener('keydown', onConfigKeydown);
+  overlay.onclick = event => { if (event.target === overlay) closeConfig(); };
+  cancelButton.onclick = closeConfig;
+  document.body.appendChild(overlay);
+  cancelButton.focus();
+
+  let raw;
+  try {
+    raw = await (await fetch('/api/agents/raw')).json();
+  } catch (e) {
+    raw = { error: e.message };
+  }
+  if (!raw.ok) {
+    message.classList.add('is-error');
+    message.setAttribute('role', 'alert');
+    message.textContent = raw.error || t('agentcfg.invalid');
+    return;
+  }
+  textarea.value = raw.content;
+  textarea.disabled = false;
+  saveButton.disabled = false;
+  message.textContent = '';
+  textarea.focus();
+
+  saveButton.onclick = async () => {
+    saveButton.disabled = true;
+    saveButton.setAttribute('aria-busy', 'true');
+    saveButton.textContent = t('agentcfg.saving');
+    message.classList.remove('is-error');
+    message.setAttribute('role', 'status');
+    message.textContent = t('agentcfg.saving');
+    let result;
+    try {
+      const response = await fetch('/api/agents/raw', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: textarea.value }),
+      });
+      result = await response.json();
+    } catch (e) {
+      result = { error: e.message };
+    }
+    if (!result.ok) {
+      message.classList.add('is-error');
+      message.setAttribute('role', 'alert');
+      message.textContent = t('agentcfg.invalid') + ': ' + (result.error || t('agentcfg.invalid'));
+      saveButton.disabled = false;
+      saveButton.removeAttribute('aria-busy');
+      saveButton.textContent = t('agentcfg.save');
+      textarea.focus();
+      return;
+    }
+    cfg.agents = result.agents;
+    renderAgentStatus();
+    if (typeof renderWbParticipantPicker === 'function') renderWbParticipantPicker();
+    for (const bar of [$('#setupbar'), $('#wbSetupBar')]) {
+      if (!bar) continue;
+      bar.hidden = false;
+      bar.classList.remove('err');
+      bar.textContent = t('agentcfg.saved');
+    }
+    closeConfig();
+  };
+}
+
 function bindMeetingWorkspaceErrorHighlight() {
   const input = $('#workspace');
   const start = $('#start');
@@ -182,7 +454,7 @@ function bindMeetingWorkspaceErrorHighlight() {
   start.onclick = async function (...args) {
     const result = await originalHandler.apply(this, args);
     const message = $('#setupbar')?.textContent ?? '';
-    if (/项目目录不存在|directory does not exist/i.test(message)) {
+    if (/项目目录(?:不存在|必须是文件夹)|Project directory (?:does not exist|must be a folder)/i.test(message)) {
       input.classList.add('input-error');
       input.focus();
     }
